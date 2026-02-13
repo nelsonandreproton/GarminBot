@@ -11,7 +11,9 @@
       "Bash(New-Item -ItemType Directory -Force -Path \"C:\\\\DEV\\\\GarminBot\\\\src\\\\nutrition\")",
       "Bash(Out-Null)",
       "Bash(pip install:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ]
   }
 }
