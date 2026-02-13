@@ -90,3 +90,17 @@ def test_invalid_json_raises_value_error(mock_anthropic):
 
     with pytest.raises(ValueError, match="invalid JSON"):
         parse_food_text("something", "fake-key")
+
+
+@patch("src.nutrition.parser.anthropic")
+def test_parse_strips_markdown_code_fence(mock_anthropic):
+    """JSON wrapped in ```json ... ``` is parsed correctly."""
+    payload = json.dumps([{"name": "babybel light", "quantity": 2, "unit": "un"}])
+    wrapped = f"```json\n{payload}\n```"
+    mock_anthropic.Anthropic.return_value = _mock_client(wrapped)
+
+    result = parse_food_text("2 babybel light", "fake-key")
+
+    assert len(result) == 1
+    assert result[0].name == "babybel light"
+    assert result[0].quantity == 2.0

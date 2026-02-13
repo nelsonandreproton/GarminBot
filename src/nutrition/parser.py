@@ -62,6 +62,11 @@ def parse_food_text(text: str, api_key: str) -> list[ParsedFoodItem]:
     raw = response.content[0].text.strip()
     logger.debug("Parser raw response: %s", raw)
 
+    # Strip markdown code fences if the model wraps the JSON (e.g. ```json ... ```)
+    if raw.startswith("```"):
+        lines = raw.splitlines()
+        raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:]).strip()
+
     try:
         items = json.loads(raw)
     except json.JSONDecodeError as exc:
