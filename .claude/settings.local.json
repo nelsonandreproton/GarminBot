@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pip install:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(python:*)",
+      "Bash(ls:*)",
+      "Bash(dir:*)",
+      "Bash(findstr:*)",
+      "Bash(cd:*)",
+      "Bash(New-Item -ItemType Directory -Force -Path \"C:\\\\DEV\\\\GarminBot\\\\src\\\\nutrition\")",
+      "Bash(Out-Null)",
+      "Bash(pip install:*)",
+      "Bash(git add:*)"
+    ]
+  }
+}

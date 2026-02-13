@@ -1,0 +1,46 @@
+# Environment
+.env
+
+# Data and logs
+data/
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+.venv/
+venv/
+env/
+.Python
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Garmin token cache
+garmin_tokens*.json
+oauth1_token.json
+oauth2_token.json
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Plan (not part of source)
+plan.md
+CLAUDE.md

@@ -1,0 +1,182 @@
+"""APScheduler job definitions for daily sync, daily report, weekly report, and backup."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from datetime import date, timedelta
+
+from ..database.repository import Repository
+from ..garmin.client import GarminClient
+from ..telegram.bot import TelegramBot
+from ..utils.backup import create_backup
+from ..utils.charts import generate_weekly_chart
+from ..utils.insights import generate_insights
+
+logger = logging.getLogger(__name__)
+
+
+def _run_async(coro) -> None:
+    """Run an async coroutine synchronously from a sync scheduler job."""
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(coro)
+    finally:
+        loop.close()
+
+
+def make_sync_job(garmin: GarminClient, repo: Repository) -> callable:
+    """Return a callable that syncs yesterday's Garmin data to the database.
+
+    Args:
+        garmin: Authenticated GarminClient.
+        repo: Database repository.
+
+    Returns:
+        Callable suitable for APScheduler.
+    """
+    def sync_yesterday_data_job() -> None:
+        logger.info("Job: starting daily Garmin sync")
+        try:
+            summary = garmin.get_yesterday_summary()
+            metrics = garmin.to_metrics_dict(summary)
+            repo.save_daily_metrics(summary.date, metrics)
+
+            status = "success" if metrics.get("garmin_sync_success") else "partial"
+            repo.log_sync(status)
+            logger.info("Job: sync complete for %s (status=%s)", summary.date, status)
+        except Exception as exc:
+            repo.log_sync("error", str(exc))
+            logger.error("Job: sync failed: %s", exc, exc_info=True)
+            raise  # Let APScheduler's error listener handle it
+
+    return sync_yesterday_data_job
+
+
+def make_daily_report_job(repo: Repository, bot: TelegramBot) -> callable:
+    """Return a callable that sends the daily Telegram report.
+
+    Args:
+        repo: Database repository.
+        bot: TelegramBot instance.
+
+    Returns:
+        Callable suitable for APScheduler.
+    """
+    def send_daily_report_job() -> None:
+        logger.info("Job: sending daily report")
+        yesterday = date.today() - timedelta(days=1)
+        row = repo.get_metrics_by_date(yesterday)
+
+        if row is None:
+            # Sync may have failed; notify user
+            logger.warning("Job: no data for %s, alerting user", yesterday)
+            _run_async(bot.send_error(
+                f"relatório de {yesterday}",
+                RuntimeError("Sem dados para ontem — o sync falhou ou ainda não correu."),
+            ))
+            return
+
+        metrics = {
+            "date": row.date,
+            "sleep_hours": row.sleep_hours,
+            "sleep_score": row.sleep_score,
+            "sleep_quality": row.sleep_quality,
+            "steps": row.steps,
+            "active_calories": row.active_calories,
+            "resting_calories": row.resting_calories,
+            "resting_heart_rate": row.resting_heart_rate,
+            "avg_stress": row.avg_stress,
+            "body_battery_high": row.body_battery_high,
+            "body_battery_low": row.body_battery_low,
+        }
+        # Attach daily nutrition totals if any food was logged
+        nutrition = repo.get_daily_nutrition(yesterday)
+        if nutrition.get("entry_count", 0) > 0:
+            metrics["nutrition"] = {
+                **nutrition,
+                "active_calories": row.active_calories,
+                "resting_calories": row.resting_calories,
+            }
+        try:
+            _run_async(bot.send_daily_summary(metrics))
+            logger.info("Job: daily report sent for %s", yesterday)
+        except Exception as exc:
+            logger.error("Job: failed to send daily report: %s", exc, exc_info=True)
+            raise
+
+    return send_daily_report_job
+
+
+def make_weekly_report_job(repo: Repository, bot: TelegramBot, database_path: str) -> callable:
+    """Return a callable that sends the weekly report, chart, insights, and creates a backup.
+
+    Args:
+        repo: Database repository.
+        bot: TelegramBot instance.
+        database_path: Path to the SQLite database (for weekly backup).
+
+    Returns:
+        Callable suitable for APScheduler.
+    """
+    def send_weekly_report_job() -> None:
+        logger.info("Job: sending weekly report")
+        yesterday = date.today() - timedelta(days=1)
+        stats = repo.get_weekly_stats(yesterday)
+
+        if not stats:
+            logger.warning("Job: no weekly data available")
+            _run_async(bot.send_error(
+                "relatório semanal",
+                RuntimeError("Sem dados suficientes para o relatório semanal."),
+            ))
+            return
+
+        try:
+            _run_async(bot.send_weekly_report(stats))
+
+            # Chart
+            start = stats.get("start_date", yesterday - timedelta(days=6))
+            rows = repo.get_metrics_range(start, yesterday)
+            if rows:
+                goals = repo.get_goals()
+                chart_bytes = generate_weekly_chart(rows, goals=goals)
+                if chart_bytes:
+                    _run_async(bot.send_image(chart_bytes, caption="📊 Evolução semanal"))
+
+                # Insights (14 days for trend detection)
+                all_rows = repo.get_metrics_range(yesterday - timedelta(days=13), yesterday)
+                insights = generate_insights(all_rows, goals=goals)
+                if insights:
+                    insight_text = "💡 *Insights:*\n" + "\n".join(f"• {i}" for i in insights)
+                    _run_async(bot._send(insight_text))
+
+            logger.info("Job: weekly report sent")
+        except Exception as exc:
+            logger.error("Job: failed to send weekly report: %s", exc, exc_info=True)
+            raise
+        finally:
+            # Always back up regardless of send outcome
+            create_backup(database_path)
+
+    return send_weekly_report_job
+
+
+def make_sync_retry_job(garmin: GarminClient, repo: Repository) -> callable:
+    """Return a job that retries today's sync only if it previously failed.
+
+    Args:
+        garmin: Authenticated GarminClient.
+        repo: Database repository.
+
+    Returns:
+        Callable suitable for APScheduler.
+    """
+    def sync_retry_job() -> None:
+        if repo.has_successful_sync_today():
+            logger.info("Job: retry-sync skipped — already synced successfully today")
+            return
+        logger.info("Job: running retry sync")
+        make_sync_job(garmin, repo)()
+
+    return sync_retry_job
