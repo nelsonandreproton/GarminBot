@@ -9,6 +9,8 @@ A Python bot that syncs Garmin Connect data daily and sends formatted health sum
 - **Weekly report** — every Sunday: 7-day stats, a bar chart, and smart insights
 - **Monthly stats** — via `/mes` command
 - **Nutrition tracking** — log food via text or barcode photo, with Groq LLM parsing (optional, free tier)
+- **Macro goals** — set daily targets for calories, protein, fat, and carbs; see remaining macros after each meal
+- **Nutrition recommendations** — LLM-generated daily advice based on yesterday's intake vs goals and Garmin data
 - **Workout recommendations** — daily gym workout based on sleep, nutrition, equipment, and movement patterns (Squat/Push/Pull/Hinge/Carry)
 - **All commands in Portuguese** — `/hoje`, `/ontem`, `/semana`, `/mes`, `/sync`, `/status`, `/comi`, `/nutricao`, `/treino`
 - **Robust error handling** — retries with exponential backoff, partial data support, Telegram error alerts
@@ -109,6 +111,7 @@ All settings live in `.env`. See `.env.example` for the full list with comments.
 | `/nutricao` | Daily nutrition summary |
 | `/apagar` | Delete last food entry |
 | `/treino` | Generate a workout recommendation for today |
+| `/objetivo` | View or set goals (passos/sono/peso/calorias/proteina/gordura/hidratos) |
 
 ## Deployment
 

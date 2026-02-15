@@ -179,3 +179,18 @@ def test_get_weekly_nutrition(repo):
     result = repo.get_weekly_nutrition(end)
     assert result["days_with_data"] == 3
     assert result["avg_calories"] == pytest.approx(2000.0, abs=1.0)
+
+
+def test_set_and_get_macro_goals(repo):
+    repo.set_goal("calories", 1750.0)
+    repo.set_goal("protein_g", 150.0)
+    repo.set_goal("fat_g", 60.0)
+    repo.set_goal("carbs_g", 200.0)
+    goals = repo.get_goals()
+    assert goals["calories"] == 1750.0
+    assert goals["protein_g"] == 150.0
+    assert goals["fat_g"] == 60.0
+    assert goals["carbs_g"] == 200.0
+    # Existing defaults still present
+    assert goals["steps"] == 10000.0
+    assert goals["sleep_hours"] == 7.0

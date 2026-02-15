@@ -56,6 +56,7 @@ def format_daily_summary(
     alerts: list[str] | None = None,
     nutrition: dict[str, Any] | None = None,
     workout: str | None = None,
+    nutrition_recommendation: str | None = None,
 ) -> str:
     """Format a daily health summary message for Telegram.
 
@@ -143,6 +144,9 @@ def format_daily_summary(
 
     if workout:
         lines += ["", format_workout_section(workout)]
+
+    if nutrition_recommendation:
+        lines += ["", format_nutrition_recommendation_section(nutrition_recommendation)]
 
     return "\n".join(lines)
 
@@ -310,7 +314,7 @@ def format_help_message() -> str:
         "/backfill N — Sincronizar últimos N dias\n"
         "/historico YYYY-MM-DD ou N — Ver dia ou últimos N dias\n"
         "/exportar N — Exportar dados em CSV\n"
-        "/objetivo passos/sono/peso valor — Ver ou definir objetivos\n"
+        "/objetivo métrica valor — Ver ou definir objetivos (passos/sono/peso/calorias/proteina/gordura/hidratos)\n"
         "/peso [valor] — Ver ou registar peso\n"
         "/treino — Gerar treino recomendado\n"
         "/status — Estado do bot\n"
@@ -408,6 +412,11 @@ def format_workout_section(workout: str) -> str:
         Markdown-formatted section string (without leading newline).
     """
     return f"💪 *Treino Recomendado*\n\n{workout}"
+
+
+def format_nutrition_recommendation_section(recommendation: str) -> str:
+    """Format a nutrition recommendation section for the daily report."""
+    return f"🥗 *Recomendação Nutricional*\n\n{recommendation}"
 
 
 def format_weekly_nutrition(weekly_nutrition: dict[str, Any]) -> str:
@@ -604,6 +613,11 @@ def format_goals(goals: dict[str, float]) -> str:
     steps = int(goals.get("steps", 10000))
     sleep_h = goals.get("sleep_hours", 7.0)
     weight_kg = goals.get("weight_kg")
+    calories = goals.get("calories")
+    protein_g = goals.get("protein_g")
+    fat_g = goals.get("fat_g")
+    carbs_g = goals.get("carbs_g")
+
     lines = [
         "🎯 *Objetivos atuais:*",
         "",
@@ -612,4 +626,70 @@ def format_goals(goals: dict[str, float]) -> str:
     ]
     if weight_kg is not None:
         lines.append(f"• Peso alvo: {weight_kg:.1f} kg")
+
+    macro_lines: list[str] = []
+    if calories is not None:
+        macro_lines.append(f"• Calorias diárias: {int(calories)} kcal")
+    if protein_g is not None:
+        macro_lines.append(f"• Proteína: {int(protein_g)}g")
+    if fat_g is not None:
+        macro_lines.append(f"• Gordura: {int(fat_g)}g")
+    if carbs_g is not None:
+        macro_lines.append(f"• Hidratos: {int(carbs_g)}g")
+    if macro_lines:
+        lines += ["", "🍽 *Nutrição:*"] + macro_lines
+
     return "\n".join(lines)
+
+
+def format_remaining_macros(
+    nutrition_totals: dict[str, Any],
+    goals: dict[str, float],
+    garmin_metrics: Any | None = None,
+) -> str | None:
+    """Format remaining macros to reach daily goals.
+
+    Returns None if no macro goals are set.
+    """
+    cal_goal = goals.get("calories")
+    prot_goal = goals.get("protein_g")
+    fat_goal = goals.get("fat_g")
+    carbs_goal = goals.get("carbs_g")
+
+    if all(g is None for g in (cal_goal, prot_goal, fat_goal, carbs_goal)):
+        return None
+
+    eaten_cal = nutrition_totals.get("calories") or 0.0
+    eaten_prot = nutrition_totals.get("protein_g") or 0.0
+    eaten_fat = nutrition_totals.get("fat_g") or 0.0
+    eaten_carbs = nutrition_totals.get("carbs_g") or 0.0
+
+    parts: list[str] = []
+    if cal_goal is not None:
+        parts.append(f"{int(cal_goal - eaten_cal)} kcal")
+    if prot_goal is not None:
+        parts.append(f"P: {int(prot_goal - eaten_prot)}g")
+    if fat_goal is not None:
+        parts.append(f"G: {int(fat_goal - eaten_fat)}g")
+    if carbs_goal is not None:
+        parts.append(f"HC: {int(carbs_goal - eaten_carbs)}g")
+
+    line = "🎯 Faltam: " + " | ".join(parts)
+
+    # Add Garmin deficit info if calorie data available
+    if garmin_metrics is not None and cal_goal is not None:
+        if isinstance(garmin_metrics, dict):
+            active = garmin_metrics.get("active_calories")
+            resting = garmin_metrics.get("resting_calories")
+        else:
+            active = getattr(garmin_metrics, "active_calories", None)
+            resting = getattr(garmin_metrics, "resting_calories", None)
+        if active is not None and resting is not None:
+            total_burned = active + resting
+            balance = int(eaten_cal) - total_burned
+            if balance > 0:
+                line += f"\n📊 Excedente vs Garmin: +{balance} kcal"
+            else:
+                line += f"\n📊 Défice vs Garmin: {balance} kcal"
+
+    return line

@@ -9,9 +9,12 @@ from src.telegram.formatters import (
     format_daily_summary,
     format_error_message,
     format_food_confirmation,
+    format_goals,
     format_monthly_report,
     format_nutrition_day,
+    format_nutrition_recommendation_section,
     format_nutrition_summary,
+    format_remaining_macros,
     format_weekly_report,
     format_workout_section,
 )
@@ -215,3 +218,103 @@ def test_format_daily_summary_without_workout():
     }
     text = format_daily_summary(metrics, workout=None)
     assert "Treino" not in text
+
+
+# ------------------------------------------------------------------ #
+# Macro goals & remaining macros tests                                 #
+# ------------------------------------------------------------------ #
+
+def test_format_goals_with_macros():
+    goals = {
+        "steps": 10000.0, "sleep_hours": 7.0,
+        "calories": 1750.0, "protein_g": 150.0, "fat_g": 60.0, "carbs_g": 200.0,
+    }
+    text = format_goals(goals)
+    assert "Nutrição" in text
+    assert "1750 kcal" in text
+    assert "150g" in text
+    assert "60g" in text
+    assert "200g" in text
+
+
+def test_format_goals_without_macros():
+    goals = {"steps": 10000.0, "sleep_hours": 7.0}
+    text = format_goals(goals)
+    assert "Nutrição" not in text
+    assert "10.000" in text
+
+
+def test_format_remaining_macros_all_goals():
+    totals = {"calories": 800.0, "protein_g": 50.0, "fat_g": 25.0, "carbs_g": 80.0}
+    goals = {"calories": 1750.0, "protein_g": 150.0, "fat_g": 60.0, "carbs_g": 200.0}
+    result = format_remaining_macros(totals, goals)
+    assert result is not None
+    assert "950 kcal" in result
+    assert "P: 100g" in result
+    assert "G: 35g" in result
+    assert "HC: 120g" in result
+
+
+def test_format_remaining_macros_no_goals_returns_none():
+    totals = {"calories": 800.0, "protein_g": 50.0}
+    goals = {"steps": 10000.0, "sleep_hours": 7.0}
+    result = format_remaining_macros(totals, goals)
+    assert result is None
+
+
+def test_format_remaining_macros_partial_goals():
+    totals = {"calories": 1000.0, "protein_g": 60.0, "fat_g": 30.0, "carbs_g": 100.0}
+    goals = {"calories": 1750.0, "protein_g": 150.0}
+    result = format_remaining_macros(totals, goals)
+    assert "750 kcal" in result
+    assert "P: 90g" in result
+    assert "G:" not in result  # no fat goal set
+
+
+def test_format_remaining_macros_with_garmin_deficit():
+    totals = {"calories": 1200.0, "protein_g": 80.0}
+    goals = {"calories": 1750.0}
+    garmin = {"active_calories": 500, "resting_calories": 1600}
+    result = format_remaining_macros(totals, goals, garmin)
+    assert "Défice vs Garmin" in result
+    assert "-900" in result  # 1200 - 2100 = -900
+
+
+def test_format_remaining_macros_with_garmin_surplus():
+    totals = {"calories": 2500.0, "protein_g": 80.0}
+    goals = {"calories": 1750.0}
+    garmin = {"active_calories": 500, "resting_calories": 1600}
+    result = format_remaining_macros(totals, goals, garmin)
+    assert "Excedente vs Garmin" in result
+    assert "+400" in result  # 2500 - 2100 = +400
+
+
+# ------------------------------------------------------------------ #
+# Nutrition recommendation tests                                       #
+# ------------------------------------------------------------------ #
+
+def test_format_nutrition_recommendation_section():
+    text = format_nutrition_recommendation_section("Come mais proteína ao almoço.")
+    assert "Recomendação Nutricional" in text
+    assert "proteína" in text
+
+
+def test_format_daily_summary_with_nutrition_recommendation():
+    metrics = {
+        "date": date(2026, 2, 13),
+        "sleep_hours": 7.5, "sleep_score": 80, "sleep_quality": "Bom",
+        "steps": 10000, "active_calories": 500, "resting_calories": 1600,
+    }
+    text = format_daily_summary(metrics, nutrition_recommendation="Come mais legumes.")
+    assert "Recomendação Nutricional" in text
+    assert "legumes" in text
+
+
+def test_format_daily_summary_without_nutrition_recommendation():
+    metrics = {
+        "date": date(2026, 2, 13),
+        "sleep_hours": 7.5, "sleep_score": 80, "sleep_quality": "Bom",
+        "steps": 10000, "active_calories": 500, "resting_calories": 1600,
+    }
+    text = format_daily_summary(metrics, nutrition_recommendation=None)
+    assert "Recomendação Nutricional" not in text

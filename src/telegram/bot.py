@@ -100,7 +100,12 @@ class TelegramBot:
             parse_mode=ParseMode.MARKDOWN,
         )
 
-    async def send_daily_summary(self, metrics: dict[str, Any], workout: str | None = None) -> None:
+    async def send_daily_summary(
+        self,
+        metrics: dict[str, Any],
+        workout: str | None = None,
+        nutrition_recommendation: str | None = None,
+    ) -> None:
         """Fetch weekly context, generate alerts, and send the daily summary message."""
         day = metrics.get("date", date.today())
         weekly = self._repo.get_weekly_stats(day)
@@ -110,7 +115,13 @@ class TelegramBot:
             goals = self._repo.get_goals()
             recent_rows = self._repo.get_metrics_range(day - timedelta(days=6), day)
             alerts = generate_daily_alerts(metrics, recent_rows, goals)
-        text = format_daily_summary(metrics, weekly_stats=weekly, alerts=alerts or None, workout=workout)
+        text = format_daily_summary(
+            metrics,
+            weekly_stats=weekly,
+            alerts=alerts or None,
+            workout=workout,
+            nutrition_recommendation=nutrition_recommendation,
+        )
         await self._send(text)
         logger.info("Daily summary sent")
 
@@ -413,7 +424,10 @@ class TelegramBot:
             return
 
         if len(args) < 2:
-            await update.message.reply_text("Uso: /objetivo passos 8000  ou  /objetivo sono 7.5  ou  /objetivo peso 75")
+            await update.message.reply_text(
+                "Uso: /objetivo <métrica> <valor>\n"
+                "Métricas: passos, sono, peso, calorias, proteina, gordura, hidratos"
+            )
             return
 
         metric_arg = args[0].lower()
@@ -443,8 +457,34 @@ class TelegramBot:
                 return
             self._repo.set_goal("weight_kg", value)
             await update.message.reply_text(f"✅ Objetivo de peso definido: {value:.1f} kg")
+        elif metric_arg in ("calorias", "calories", "kcal", "cal"):
+            if not 500 <= value <= 10000:
+                await update.message.reply_text("Objetivo de calorias deve ser entre 500 e 10000 kcal.")
+                return
+            self._repo.set_goal("calories", value)
+            await update.message.reply_text(f"✅ Objetivo de calorias definido: {int(value)} kcal")
+        elif metric_arg in ("proteina", "proteinas", "protein"):
+            if not 10 <= value <= 500:
+                await update.message.reply_text("Objetivo de proteína deve ser entre 10 e 500g.")
+                return
+            self._repo.set_goal("protein_g", value)
+            await update.message.reply_text(f"✅ Objetivo de proteína definido: {int(value)}g")
+        elif metric_arg in ("gordura", "fat"):
+            if not 10 <= value <= 300:
+                await update.message.reply_text("Objetivo de gordura deve ser entre 10 e 300g.")
+                return
+            self._repo.set_goal("fat_g", value)
+            await update.message.reply_text(f"✅ Objetivo de gordura definido: {int(value)}g")
+        elif metric_arg in ("hidratos", "carbs", "hc"):
+            if not 20 <= value <= 800:
+                await update.message.reply_text("Objetivo de hidratos deve ser entre 20 e 800g.")
+                return
+            self._repo.set_goal("carbs_g", value)
+            await update.message.reply_text(f"✅ Objetivo de hidratos definido: {int(value)}g")
         else:
-            await update.message.reply_text("Métrica desconhecida. Usa 'passos', 'sono' ou 'peso'.")
+            await update.message.reply_text(
+                "Métrica desconhecida. Usa: passos, sono, peso, calorias, proteina, gordura, hidratos."
+            )
 
     async def _cmd_peso(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """/peso [valor] — view or register weight."""
@@ -547,7 +587,17 @@ class TelegramBot:
         ]
         self._repo.save_food_entries(today, entries)
         total_cal = sum(item.calories or 0 for item in items)
-        await query.edit_message_text(f"✅ Registado! Total: {int(total_cal)} kcal")
+
+        msg = f"✅ Registado! Total: {int(total_cal)} kcal"
+        from .formatters import format_remaining_macros
+        goals = self._repo.get_goals()
+        totals = self._repo.get_daily_nutrition(today)
+        garmin_row = self._repo.get_metrics_by_date(today)
+        remaining = format_remaining_macros(totals, goals, garmin_row)
+        if remaining:
+            msg += f"\n\n{remaining}"
+
+        await query.edit_message_text(msg)
         return ConversationHandler.END
 
     async def _cancel_food(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
