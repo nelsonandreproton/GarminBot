@@ -1,9 +1,10 @@
-"""APScheduler job definitions for daily sync, daily report, weekly report, and backup."""
+"""APScheduler job definitions for daily sync, daily report, weekly report, wake detection, and backup."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import time as _time
 from datetime import date, timedelta
 
 from ..database.repository import Repository
@@ -65,45 +66,7 @@ def make_daily_report_job(repo: Repository, bot: TelegramBot) -> callable:
     """
     def send_daily_report_job() -> None:
         logger.info("Job: sending daily report")
-        yesterday = date.today() - timedelta(days=1)
-        row = repo.get_metrics_by_date(yesterday)
-
-        if row is None:
-            # Sync may have failed; notify user
-            logger.warning("Job: no data for %s, alerting user", yesterday)
-            _run_async(bot.send_error(
-                f"relatório de {yesterday}",
-                RuntimeError("Sem dados para ontem — o sync falhou ou ainda não correu."),
-            ))
-            return
-
-        metrics = {
-            "date": row.date,
-            "sleep_hours": row.sleep_hours,
-            "sleep_score": row.sleep_score,
-            "sleep_quality": row.sleep_quality,
-            "steps": row.steps,
-            "active_calories": row.active_calories,
-            "resting_calories": row.resting_calories,
-            "resting_heart_rate": row.resting_heart_rate,
-            "avg_stress": row.avg_stress,
-            "body_battery_high": row.body_battery_high,
-            "body_battery_low": row.body_battery_low,
-        }
-        # Attach daily nutrition totals if any food was logged
-        nutrition = repo.get_daily_nutrition(yesterday)
-        if nutrition.get("entry_count", 0) > 0:
-            metrics["nutrition"] = {
-                **nutrition,
-                "active_calories": row.active_calories,
-                "resting_calories": row.resting_calories,
-            }
-        try:
-            _run_async(bot.send_daily_summary(metrics))
-            logger.info("Job: daily report sent for %s", yesterday)
-        except Exception as exc:
-            logger.error("Job: failed to send daily report: %s", exc, exc_info=True)
-            raise
+        _send_daily_report(repo, bot)
 
     return send_daily_report_job
 
@@ -180,3 +143,146 @@ def make_sync_retry_job(garmin: GarminClient, repo: Repository) -> callable:
         make_sync_job(garmin, repo)()
 
     return sync_retry_job
+
+
+def make_wake_check_job(
+    garmin: GarminClient,
+    repo: Repository,
+    bot: TelegramBot,
+) -> callable:
+    """Return a job that polls Garmin for completed sleep data to detect wake-up.
+
+    When sleep data becomes available for today, it means the user has woken up
+    and their device has synced. At that point, trigger the full sync and daily
+    report.
+
+    This job is designed to run periodically (e.g. every 10 minutes) within a
+    configured morning window. It is a no-op if a report was already sent today.
+
+    Args:
+        garmin: Authenticated GarminClient.
+        repo: Database repository.
+        bot: TelegramBot instance.
+
+    Returns:
+        Callable suitable for APScheduler.
+    """
+    def wake_check_job() -> None:
+        # Skip if report was already sent today
+        if repo.has_report_sent_today():
+            logger.debug("Wake check: report already sent today, skipping")
+            return
+
+        today = date.today()
+        logger.info("Wake check: polling Garmin for sleep data (date=%s)", today)
+
+        if not garmin.check_sleep_available(today):
+            logger.info("Wake check: no sleep data yet — still sleeping or device not synced")
+            return
+
+        logger.info("Wake check: sleep data detected — user has woken up!")
+
+        # Run the full sync
+        try:
+            summary = garmin.get_yesterday_summary()
+            metrics = garmin.to_metrics_dict(summary)
+            repo.save_daily_metrics(summary.date, metrics)
+            status = "success" if metrics.get("garmin_sync_success") else "partial"
+            repo.log_sync(status)
+            logger.info("Wake check: sync complete for %s (status=%s)", summary.date, status)
+        except Exception as exc:
+            repo.log_sync("error", str(exc))
+            logger.error("Wake check: sync failed: %s", exc, exc_info=True)
+
+        # Send the daily report
+        _send_daily_report(repo, bot)
+
+    return wake_check_job
+
+
+def make_wake_fallback_job(
+    garmin: GarminClient,
+    repo: Repository,
+    bot: TelegramBot,
+) -> callable:
+    """Return a fallback job that runs at the end of the wake detection window.
+
+    If wake detection hasn't triggered by the end of the window (e.g. user
+    didn't wear the watch, or device didn't sync), force the sync and report
+    with whatever data is available.
+
+    Args:
+        garmin: Authenticated GarminClient.
+        repo: Database repository.
+        bot: TelegramBot instance.
+
+    Returns:
+        Callable suitable for APScheduler.
+    """
+    def wake_fallback_job() -> None:
+        if repo.has_report_sent_today():
+            logger.info("Wake fallback: report already sent today, skipping")
+            return
+
+        logger.info("Wake fallback: end of detection window, forcing sync + report")
+
+        # Attempt sync even if data is incomplete
+        try:
+            summary = garmin.get_yesterday_summary()
+            metrics = garmin.to_metrics_dict(summary)
+            repo.save_daily_metrics(summary.date, metrics)
+            status = "success" if metrics.get("garmin_sync_success") else "partial"
+            repo.log_sync(status)
+            logger.info("Wake fallback: sync complete for %s (status=%s)", summary.date, status)
+        except Exception as exc:
+            repo.log_sync("error", str(exc))
+            logger.error("Wake fallback: sync failed: %s", exc, exc_info=True)
+
+        # Send the report regardless
+        _send_daily_report(repo, bot)
+
+    return wake_fallback_job
+
+
+def _send_daily_report(repo: Repository, bot: TelegramBot) -> None:
+    """Shared helper: send the daily report and mark it as sent."""
+    yesterday = date.today() - timedelta(days=1)
+    row = repo.get_metrics_by_date(yesterday)
+
+    if row is None:
+        logger.warning("Daily report: no data for %s, alerting user", yesterday)
+        _run_async(bot.send_error(
+            f"relatório de {yesterday}",
+            RuntimeError("Sem dados para ontem — o sync falhou ou ainda não correu."),
+        ))
+        repo.log_report_sent()  # Mark sent to avoid duplicate error messages
+        return
+
+    metrics = {
+        "date": row.date,
+        "sleep_hours": row.sleep_hours,
+        "sleep_score": row.sleep_score,
+        "sleep_quality": row.sleep_quality,
+        "steps": row.steps,
+        "active_calories": row.active_calories,
+        "resting_calories": row.resting_calories,
+        "resting_heart_rate": row.resting_heart_rate,
+        "avg_stress": row.avg_stress,
+        "body_battery_high": row.body_battery_high,
+        "body_battery_low": row.body_battery_low,
+    }
+    # Attach daily nutrition totals if any food was logged
+    nutrition = repo.get_daily_nutrition(yesterday)
+    if nutrition.get("entry_count", 0) > 0:
+        metrics["nutrition"] = {
+            **nutrition,
+            "active_calories": row.active_calories,
+            "resting_calories": row.resting_calories,
+        }
+    try:
+        _run_async(bot.send_daily_summary(metrics))
+        repo.log_report_sent()
+        logger.info("Daily report sent for %s", yesterday)
+    except Exception as exc:
+        logger.error("Failed to send daily report: %s", exc, exc_info=True)
+        raise

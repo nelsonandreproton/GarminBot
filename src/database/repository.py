@@ -224,6 +224,21 @@ class Repository:
             )
             return result is not None
 
+    def has_report_sent_today(self) -> bool:
+        """Return True if a daily report was already sent today (UTC)."""
+        today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+        with self._session() as session:
+            result = (
+                session.query(SyncLog)
+                .filter(SyncLog.status == "report_sent", SyncLog.sync_date >= today_start)
+                .first()
+            )
+            return result is not None
+
+    def log_report_sent(self) -> None:
+        """Record that the daily report was sent today."""
+        self.log_sync("report_sent")
+
     def get_missing_dates(self, start_date: date, end_date: date) -> list[date]:
         """Return dates in [start_date, end_date] that have no entry in daily_metrics."""
         rows = self.get_metrics_range(start_date, end_date)

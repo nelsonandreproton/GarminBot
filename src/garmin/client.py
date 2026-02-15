@@ -201,6 +201,39 @@ class GarminClient:
             logger.debug("Could not fetch body battery for %s: %s", date_str, exc)
         return result
 
+    def check_sleep_available(self, day: date) -> bool:
+        """Check if completed sleep data exists for the given date.
+
+        This is used for wake detection: Garmin only has sleep data for today
+        once the user has woken up and their device has synced.
+
+        Args:
+            day: The date to check (typically today).
+
+        Returns:
+            True if sleep data with sleepTimeSeconds is available.
+        """
+        client = self._ensure_authenticated()
+        date_str = day.isoformat()
+
+        try:
+            raw: dict[str, Any] = client.get_sleep_data(date_str)
+        except garminconnect.GarminConnectAuthenticationError:
+            logger.warning("Garmin: auth error during sleep check, invalidating token")
+            invalidate_token()
+            self._client = None
+            return False
+        except Exception as exc:
+            logger.debug("Sleep availability check failed for %s: %s", date_str, exc)
+            return False
+
+        if not raw:
+            return False
+
+        daily = raw.get("dailySleepDTO", {})
+        sleep_seconds = daily.get("sleepTimeSeconds")
+        return sleep_seconds is not None and sleep_seconds > 0
+
     def get_yesterday_summary(self) -> DailySummary:
         """Convenience method: fetch all metrics for yesterday.
 
