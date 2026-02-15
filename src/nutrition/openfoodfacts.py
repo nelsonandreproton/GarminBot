@@ -10,7 +10,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 _HEADERS = {"User-Agent": "GarminBot/1.0"}
-_TIMEOUT = 10
+_TIMEOUT = 30
 
 
 @dataclass
