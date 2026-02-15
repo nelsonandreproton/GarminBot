@@ -69,11 +69,11 @@ class TelegramBot:
         self._garmin_sync = garmin_sync_callback
         self._garmin_backfill = garmin_backfill_callback
         self._app: Application | None = None
-        # NutritionService (lazy init — only if ANTHROPIC_API_KEY is set)
+        # NutritionService (lazy init — only if GROQ_API_KEY is set)
         self._nutrition_service = None
-        if config.anthropic_api_key:
+        if config.groq_api_key:
             from ..nutrition.service import NutritionService
-            self._nutrition_service = NutritionService(config.anthropic_api_key)
+            self._nutrition_service = NutritionService(config.groq_api_key)
 
     # ------------------------------------------------------------------ #
     # Sending                                                               #
@@ -444,7 +444,7 @@ class TelegramBot:
             return ConversationHandler.END
         if self._nutrition_service is None:
             await update.message.reply_text(
-                "⚠️ Funcionalidade de nutrição não configurada. Adiciona ANTHROPIC_API_KEY ao ficheiro .env."
+                "⚠️ Funcionalidade de nutrição não configurada. Adiciona GROQ_API_KEY ao ficheiro .env."
             )
             return ConversationHandler.END
 

@@ -32,7 +32,7 @@ class Config:
     sync_retry_delay_minutes: int
     health_port: int | None
     daily_alerts: bool
-    anthropic_api_key: str | None
+    groq_api_key: str | None
 
     # Derived fields
     sync_hour: int = field(init=False)
@@ -93,8 +93,8 @@ def load_config() -> Config:
     # SYNC_RETRY_DELAY_MINUTES: default 30
     sync_retry_delay_minutes = int(os.getenv("SYNC_RETRY_DELAY_MINUTES", "30"))
 
-    # ANTHROPIC_API_KEY: optional — nutrition features disabled if absent
-    anthropic_api_key = os.getenv("ANTHROPIC_API_KEY") or None
+    # GROQ_API_KEY: optional — nutrition features disabled if absent
+    groq_api_key = os.getenv("GROQ_API_KEY") or None
 
     return Config(
         garmin_email=required["GARMIN_EMAIL"],  # type: ignore[arg-type]
@@ -112,5 +112,5 @@ def load_config() -> Config:
         sync_retry_delay_minutes=sync_retry_delay_minutes,
         health_port=health_port,
         daily_alerts=daily_alerts,
-        anthropic_api_key=anthropic_api_key,
+        groq_api_key=groq_api_key,
     )

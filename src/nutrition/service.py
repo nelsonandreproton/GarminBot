@@ -6,6 +6,8 @@ import json
 import logging
 from dataclasses import dataclass
 
+from groq import Groq
+
 from .barcode import decode_barcode
 from .openfoodfacts import NutritionData, lookup_barcode, search_product
 from .parser import ParsedFoodItem, parse_food_text
@@ -16,6 +18,8 @@ _ESTIMATE_SYSTEM = """Tu és um nutricionista. Dado o nome de um alimento, estim
 Responde APENAS com JSON válido, sem markdown:
 {"calories_per_100g": N, "protein_per_100g": N, "fat_per_100g": N, "carbs_per_100g": N, "fiber_per_100g": N}
 Usa valores típicos para o produto. Se for uma unidade (ex: ovo, banana), estima para 100g do alimento."""
+
+_MODEL = "llama-3.3-70b-versatile"
 
 
 @dataclass
@@ -28,15 +32,15 @@ class FoodItemResult:
     fat_g: float | None
     carbs_g: float | None
     fiber_g: float | None
-    source: str  # "openfoodfacts" | "claude_estimate" | "barcode"
+    source: str  # "openfoodfacts" | "llm_estimate" | "barcode"
     barcode: str | None = None
 
 
 class NutritionService:
     """Orchestrates food parsing, nutritional lookup, and fallback estimation."""
 
-    def __init__(self, anthropic_api_key: str) -> None:
-        self._api_key = anthropic_api_key
+    def __init__(self, groq_api_key: str) -> None:
+        self._api_key = groq_api_key
 
     def process_text(self, text: str) -> list[FoodItemResult]:
         """Parse free text and look up nutrition for each item.
@@ -54,9 +58,9 @@ class NutritionService:
             if nutrition:
                 source = "openfoodfacts"
             else:
-                logger.info("OFF not found for '%s', using Claude estimate", item.name)
+                logger.info("OFF not found for '%s', using LLM estimate", item.name)
                 nutrition = self._estimate_as_nutrition_data(item.name)
-                source = "claude_estimate"
+                source = "llm_estimate"
 
             nutrients = self._calculate_nutrients(nutrition, item.quantity, item.unit) if nutrition else {}
             results.append(FoodItemResult(
@@ -106,7 +110,7 @@ class NutritionService:
         )
 
     def _estimate_as_nutrition_data(self, food_name: str) -> NutritionData | None:
-        """Ask Claude to estimate nutritional values per 100g."""
+        """Ask LLM to estimate nutritional values per 100g."""
         raw = self._estimate_nutrition(food_name)
         if not raw:
             return None
@@ -121,25 +125,30 @@ class NutritionService:
         )
 
     def _estimate_nutrition(self, food_name: str) -> dict:
-        """Fallback: ask Claude to estimate nutritional values per 100g.
+        """Fallback: ask LLM to estimate nutritional values per 100g.
 
         Returns:
             Dict with keys calories_per_100g, protein_per_100g, fat_per_100g,
             carbs_per_100g, fiber_per_100g. Empty dict on failure.
         """
         try:
-            import anthropic
-            client = anthropic.Anthropic(api_key=self._api_key)
-            response = client.messages.create(
-                model="claude-haiku-4-5-20251001",
+            client = Groq(api_key=self._api_key)
+            response = client.chat.completions.create(
+                model=_MODEL,
                 max_tokens=200,
-                system=_ESTIMATE_SYSTEM,
-                messages=[{"role": "user", "content": food_name}],
+                messages=[
+                    {"role": "system", "content": _ESTIMATE_SYSTEM},
+                    {"role": "user", "content": food_name},
+                ],
             )
-            raw = response.content[0].text.strip()
+            raw = response.choices[0].message.content.strip()
+            # Strip markdown code fences if present
+            if raw.startswith("```"):
+                lines = raw.splitlines()
+                raw = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:]).strip()
             return json.loads(raw)
         except Exception as exc:
-            logger.warning("Claude nutrition estimate failed for '%s': %s", food_name, exc)
+            logger.warning("LLM nutrition estimate failed for '%s': %s", food_name, exc)
             return {}
 
     def _calculate_nutrients(

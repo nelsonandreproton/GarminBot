@@ -85,7 +85,7 @@ def test_process_text_fallback_to_claude(mock_parse, mock_search, mock_estimate)
     results = svc.process_text("1 produto xpto")
 
     assert len(results) == 1
-    assert results[0].source == "claude_estimate"
+    assert results[0].source == "llm_estimate"
 
 
 @patch("src.nutrition.service.lookup_barcode")

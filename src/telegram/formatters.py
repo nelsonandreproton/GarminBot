@@ -438,7 +438,7 @@ def format_food_confirmation(items: list[Any]) -> str:
         total_carbs += carbs
         total_fiber += fiber
 
-        source_tag = " _(estimativa)_" if item.source == "claude_estimate" else ""
+        source_tag = " _(estimativa)_" if item.source == "llm_estimate" else ""
         lines.append(f"{i}. {item.name.title()} ({qty_str}){source_tag}")
         lines.append(f"   {int(cal)} kcal | P: {int(prot)}g | G: {int(fat)}g | HC: {int(carbs)}g | F: {int(fiber)}g")
 

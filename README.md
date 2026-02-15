@@ -1,6 +1,6 @@
 # GarminBot
 
-A Python bot that syncs Garmin Connect data daily and sends formatted health summaries to Telegram, with weekly reports, trend charts, and smart insights.
+A Python bot that syncs Garmin Connect data daily and sends formatted health summaries to Telegram, with weekly reports, trend charts, smart insights, and optional nutrition tracking.
 
 ## Features
 
@@ -8,7 +8,8 @@ A Python bot that syncs Garmin Connect data daily and sends formatted health sum
 - **Daily Telegram report** — sends a formatted message with sleep quality, steps, and calorie data
 - **Weekly report** — every Sunday: 7-day stats, a bar chart, and smart insights
 - **Monthly stats** — via `/mes` command
-- **All commands in Portuguese** — `/hoje`, `/ontem`, `/semana`, `/mes`, `/sync`, `/status`
+- **Nutrition tracking** — log food via text or barcode photo, with Groq LLM parsing (optional, free tier)
+- **All commands in Portuguese** — `/hoje`, `/ontem`, `/semana`, `/mes`, `/sync`, `/status`, `/comi`, `/nutricao`
 - **Robust error handling** — retries with exponential backoff, partial data support, Telegram error alerts
 - **Token persistence** — Garmin OAuth2 token saved to disk, reused across restarts
 - **Automatic backups** — weekly SQLite backup with 7-copy retention
@@ -19,6 +20,7 @@ A Python bot that syncs Garmin Connect data daily and sends formatted health sum
 - Python 3.10+
 - A Garmin Connect account
 - A Telegram bot token (from [@BotFather](https://t.me/BotFather))
+- (Optional) A [Groq API key](https://console.groq.com/) for nutrition tracking (free tier)
 
 ## Setup
 
@@ -26,7 +28,7 @@ A Python bot that syncs Garmin Connect data daily and sends formatted health sum
 
 ```bash
 git clone <repo-url>
-cd garmin-telegram-bot
+cd GarminBot
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
@@ -57,6 +59,9 @@ GARMIN_EMAIL=your@email.com
 GARMIN_PASSWORD=your_garmin_password
 TELEGRAM_BOT_TOKEN=123456789:ABC-DEF...
 TELEGRAM_CHAT_ID=123456789
+
+# Optional: enable nutrition tracking (free at console.groq.com)
+GROQ_API_KEY=gsk_...
 ```
 
 ### 5. Run
@@ -85,6 +90,7 @@ All settings live in `.env`. See `.env.example` for the full list with comments.
 | `TIMEZONE` | `Europe/Lisbon` | Timezone for scheduling |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `LOG_FILE` | `./logs/bot.log` | Log file path |
+| `GROQ_API_KEY` | — | Groq API key (optional, enables `/comi` and `/nutricao`) |
 
 ## Telegram Commands
 
@@ -96,48 +102,72 @@ All settings live in `.env`. See `.env.example` for the full list with comments.
 | `/mes` | Last 30 days averages |
 | `/sync` | Force an immediate Garmin sync |
 | `/status` | Bot status, last sync time, recent errors, next jobs |
-
-## Expected Message Formats
-
-### Daily Summary
-```
-📊 Resumo de 13/02/2026
-
-😴 Sono
-• Duração: 7h 23min
-• Score: 82/100 ⭐⭐⭐⭐
-• Avaliação: Excelente
-
-👟 Atividade
-• Passos: 12.340
-• Calorias ativas: 487 kcal 🔥
-• Calorias repouso: 1.680 kcal
-
-📈 Comparação semanal:
-• Sono médio: 7h 15min (+8min)
-• Passos médios: 11.280 (+1.060)
-```
-
-### Weekly Report
-```
-📅 Relatório Semanal (07-13 Fev)
-
-😴 Sono
-• Média: 7h 18min
-• Melhor: 8h 02min (Sábado)
-• Pior: 6h 14min (Quarta)
-• Score médio: 79/100
-
-👟 Atividade
-• Total passos: 78.920
-• Média diária: 11.274
-• Calorias ativas: 3.214 kcal
-• Calorias repouso: 11.760 kcal
-```
+| `/comi` | Register food eaten (text or barcode photo) |
+| `/nutricao` | Daily nutrition summary |
+| `/apagar` | Delete last food entry |
 
 ## Deployment
 
-### Systemd (recommended for VPS/Raspberry Pi)
+### Docker on Ubuntu VPS (recommended)
+
+```bash
+# On the server
+git clone <repo-url>
+cd GarminBot
+
+# Create .env
+cp .env.example .env
+nano .env  # fill in credentials
+
+# Build and run
+docker build -t garminbot .
+docker run -d \
+  --name garminbot \
+  --restart unless-stopped \
+  --env-file .env \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/logs:/app/logs \
+  garminbot
+
+# View logs
+docker logs -f garminbot
+```
+
+**Update the bot:**
+
+```bash
+git pull
+docker build -t garminbot .
+docker stop garminbot && docker rm garminbot
+docker run -d \
+  --name garminbot \
+  --restart unless-stopped \
+  --env-file .env \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/logs:/app/logs \
+  garminbot
+```
+
+### Systemd (alternative, no Docker)
+
+Install system dependencies first:
+
+```bash
+sudo apt update
+sudo apt install -y python3 python3-venv libzbar0
+```
+
+Setup:
+
+```bash
+git clone <repo-url>
+cd GarminBot
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+nano .env  # fill in credentials
+```
 
 Create `/etc/systemd/system/garminbot.service`:
 
@@ -149,9 +179,9 @@ After=network.target
 [Service]
 Type=simple
 User=your_user
-WorkingDirectory=/path/to/garmin-telegram-bot
-EnvironmentFile=/path/to/garmin-telegram-bot/.env
-ExecStart=/path/to/.venv/bin/python -m src.main
+WorkingDirectory=/home/your_user/GarminBot
+EnvironmentFile=/home/your_user/GarminBot/.env
+ExecStart=/home/your_user/GarminBot/.venv/bin/python -m src.main
 Restart=always
 RestartSec=30
 
@@ -164,22 +194,6 @@ sudo systemctl daemon-reload
 sudo systemctl enable garminbot
 sudo systemctl start garminbot
 sudo journalctl -u garminbot -f
-```
-
-### Docker
-
-```dockerfile
-FROM python:3.11-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY src/ ./src/
-CMD ["python", "-m", "src.main"]
-```
-
-```bash
-docker build -t garminbot .
-docker run -d --env-file .env -v $(pwd)/data:/app/data -v $(pwd)/logs:/app/logs garminbot
 ```
 
 ## Running Tests
@@ -213,10 +227,13 @@ python -m pytest tests/ -v
 - Only one instance of the bot should run at a time
 - If the bot crashed, wait a few seconds before restarting
 
+**Nutrition commands disabled**
+- Set `GROQ_API_KEY` in `.env` (get a free key at https://console.groq.com/)
+
 ## Project Structure
 
 ```
-garmin-telegram-bot/
+GarminBot/
 ├── src/
 │   ├── main.py              # Entry point
 │   ├── config.py            # Environment variable loading
@@ -226,6 +243,11 @@ garmin-telegram-bot/
 │   ├── database/
 │   │   ├── models.py        # SQLAlchemy ORM models
 │   │   └── repository.py    # All read/write operations
+│   ├── nutrition/
+│   │   ├── parser.py        # Groq LLM: text → structured food items
+│   │   ├── service.py       # Orchestrates parse → lookup → fallback
+│   │   ├── openfoodfacts.py # OpenFoodFacts API client
+│   │   └── barcode.py       # Barcode decoding from photos
 │   ├── telegram/
 │   │   ├── bot.py           # Bot application and command handlers
 │   │   └── formatters.py    # Message formatting
@@ -235,10 +257,13 @@ garmin-telegram-bot/
 │       ├── logger.py        # Logging configuration
 │       ├── charts.py        # Matplotlib chart generation
 │       ├── insights.py      # Pattern detection and milestones
-│       └── backup.py        # Database backup
+│       ├── backup.py        # Database backup
+│       └── healthcheck.py   # Optional HTTP health server
 ├── tests/                   # Pytest test suite
 ├── data/                    # Database and backups (gitignored)
 ├── logs/                    # Log files (gitignored)
+├── Dockerfile
+├── .dockerignore
 ├── .env.example
 ├── requirements.txt
 └── README.md

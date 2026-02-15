@@ -1,4 +1,4 @@
-"""Claude API-based food text parser: Portuguese free text → structured items."""
+"""Groq API-based food text parser: Portuguese free text → structured items."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 import logging
 from dataclasses import dataclass
 
-import anthropic
+from groq import Groq
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +25,8 @@ Regras:
 Responde APENAS com JSON válido, sem markdown:
 [{"name": "...", "quantity": N, "unit": "..."}]"""
 
+_MODEL = "llama-3.3-70b-versatile"
+
 
 @dataclass
 class ParsedFoodItem:
@@ -38,28 +40,30 @@ def parse_food_text(text: str, api_key: str) -> list[ParsedFoodItem]:
 
     Args:
         text: Free-form Portuguese text describing food eaten.
-        api_key: Anthropic API key.
+        api_key: Groq API key.
 
     Returns:
         List of ParsedFoodItem. Empty list if input is empty or parse fails.
 
     Raises:
-        ValueError: If Claude returns invalid JSON.
-        anthropic.APIError: On API-level errors.
+        ValueError: If the model returns invalid JSON.
+        groq.APIError: On API-level errors.
     """
     text = text.strip()
     if not text:
         return []
 
-    client = anthropic.Anthropic(api_key=api_key)
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
+    client = Groq(api_key=api_key)
+    response = client.chat.completions.create(
+        model=_MODEL,
         max_tokens=500,
-        system=_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": text}],
+        messages=[
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user", "content": text},
+        ],
     )
 
-    raw = response.content[0].text.strip()
+    raw = response.choices[0].message.content.strip()
     logger.debug("Parser raw response: %s", raw)
 
     # Strip markdown code fences if the model wraps the JSON (e.g. ```json ... ```)
@@ -70,7 +74,7 @@ def parse_food_text(text: str, api_key: str) -> list[ParsedFoodItem]:
     try:
         items = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"Claude returned invalid JSON: {raw!r}") from exc
+        raise ValueError(f"LLM returned invalid JSON: {raw!r}") from exc
 
     if not isinstance(items, list):
         raise ValueError(f"Expected JSON array, got: {type(items)}")
