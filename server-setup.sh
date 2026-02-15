@@ -128,7 +128,7 @@ if [[ "$CONFIRM" =~ ^[Yy]$ ]]; then
     sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
     sed -i 's/^#\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config
 
-    systemctl restart sshd
+    systemctl restart ssh || systemctl restart sshd
     echo "  SSH hardened: password auth disabled, root login disabled."
     echo ""
     echo "  IMPORTANT: Test SSH key login in a NEW terminal before closing this session!"
