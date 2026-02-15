@@ -33,6 +33,10 @@ class Config:
     health_port: int | None
     daily_alerts: bool
     groq_api_key: str | None
+    wake_detection: bool
+    wake_check_interval_minutes: int
+    wake_check_start: str
+    wake_check_end: str
 
     # Derived fields
     sync_hour: int = field(init=False)
@@ -41,11 +45,17 @@ class Config:
     report_minute: int = field(init=False)
     weekly_hour: int = field(init=False)
     weekly_minute: int = field(init=False)
+    wake_start_hour: int = field(init=False)
+    wake_start_minute: int = field(init=False)
+    wake_end_hour: int = field(init=False)
+    wake_end_minute: int = field(init=False)
 
     def __post_init__(self) -> None:
         self.sync_hour, self.sync_minute = self._parse_time(self.daily_sync_time, "DAILY_SYNC_TIME")
         self.report_hour, self.report_minute = self._parse_time(self.daily_report_time, "DAILY_REPORT_TIME")
         self.weekly_hour, self.weekly_minute = self._parse_time(self.weekly_report_time, "WEEKLY_REPORT_TIME")
+        self.wake_start_hour, self.wake_start_minute = self._parse_time(self.wake_check_start, "WAKE_CHECK_START")
+        self.wake_end_hour, self.wake_end_minute = self._parse_time(self.wake_check_end, "WAKE_CHECK_END")
 
     @staticmethod
     def _parse_time(value: str, name: str) -> tuple[int, int]:
@@ -96,6 +106,13 @@ def load_config() -> Config:
     # GROQ_API_KEY: optional — nutrition features disabled if absent
     groq_api_key = os.getenv("GROQ_API_KEY") or None
 
+    # Wake detection: poll Garmin for sleep data instead of fixed report time
+    wake_detection_raw = os.getenv("WAKE_DETECTION", "true")
+    wake_detection = wake_detection_raw.strip().lower() != "false"
+    wake_check_interval_minutes = int(os.getenv("WAKE_CHECK_INTERVAL_MINUTES", "10"))
+    wake_check_start = os.getenv("WAKE_CHECK_START", "05:00")
+    wake_check_end = os.getenv("WAKE_CHECK_END", "12:00")
+
     return Config(
         garmin_email=required["GARMIN_EMAIL"],  # type: ignore[arg-type]
         garmin_password=required["GARMIN_PASSWORD"],  # type: ignore[arg-type]
@@ -113,4 +130,8 @@ def load_config() -> Config:
         health_port=health_port,
         daily_alerts=daily_alerts,
         groq_api_key=groq_api_key,
+        wake_detection=wake_detection,
+        wake_check_interval_minutes=wake_check_interval_minutes,
+        wake_check_start=wake_check_start,
+        wake_check_end=wake_check_end,
     )

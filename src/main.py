@@ -16,7 +16,14 @@ from pytz import timezone as pytz_timezone
 from .config import ConfigError, load_config
 from .database.repository import Repository
 from .garmin.client import GarminClient
-from .scheduler.jobs import make_daily_report_job, make_sync_job, make_sync_retry_job, make_weekly_report_job
+from .scheduler.jobs import (
+    make_daily_report_job,
+    make_sync_job,
+    make_sync_retry_job,
+    make_wake_check_job,
+    make_wake_fallback_job,
+    make_weekly_report_job,
+)
 from .telegram.bot import TelegramBot
 from .utils.logger import setup_logging
 
@@ -95,9 +102,41 @@ def _build_scheduler(config, repo: Repository, garmin: GarminClient, tg_bot: Tel
     scheduler = BackgroundScheduler(timezone=tz)
     scheduler.add_listener(_job_error_listener, EVENT_JOB_ERROR)
 
+    weekly_job = make_weekly_report_job(repo, tg_bot, config.database_path)
+
+    if config.wake_detection:
+        # Wake detection mode: poll Garmin for sleep data to detect wake-up,
+        # then sync + send report. No fixed sync/report times.
+        _build_wake_detection_jobs(scheduler, config, repo, garmin, tg_bot, tz)
+    else:
+        # Fixed-time mode: sync and report at configured times (original behaviour)
+        _build_fixed_time_jobs(scheduler, config, repo, garmin, tg_bot, tz)
+
+    weekly_day = _WEEKDAY_MAP.get(config.weekly_report_day.lower(), "sun")
+    scheduler.add_job(
+        weekly_job,
+        CronTrigger(day_of_week=weekly_day, hour=config.weekly_hour, minute=config.weekly_minute, timezone=tz),
+        id="weekly_report",
+        name="Weekly Report",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=7200,
+    )
+
+    return scheduler
+
+
+def _build_fixed_time_jobs(
+    scheduler: BackgroundScheduler,
+    config,
+    repo: Repository,
+    garmin: GarminClient,
+    tg_bot: TelegramBot,
+    tz,
+) -> None:
+    """Add the original fixed-time sync, report, and retry jobs."""
     sync_job = make_sync_job(garmin, repo)
     report_job = make_daily_report_job(repo, tg_bot)
-    weekly_job = make_weekly_report_job(repo, tg_bot, config.database_path)
 
     scheduler.add_job(
         sync_job,
@@ -118,17 +157,6 @@ def _build_scheduler(config, repo: Repository, garmin: GarminClient, tg_bot: Tel
         misfire_grace_time=3600,
     )
 
-    weekly_day = _WEEKDAY_MAP.get(config.weekly_report_day.lower(), "sun")
-    scheduler.add_job(
-        weekly_job,
-        CronTrigger(day_of_week=weekly_day, hour=config.weekly_hour, minute=config.weekly_minute, timezone=tz),
-        id="weekly_report",
-        name="Weekly Report",
-        max_instances=1,
-        coalesce=True,
-        misfire_grace_time=7200,
-    )
-
     retry_job = make_sync_retry_job(garmin, repo)
     retry_total_minutes = config.sync_hour * 60 + config.sync_minute + config.sync_retry_delay_minutes
     retry_hour = (retry_total_minutes // 60) % 24
@@ -143,7 +171,58 @@ def _build_scheduler(config, repo: Repository, garmin: GarminClient, tg_bot: Tel
         misfire_grace_time=1800,
     )
 
-    return scheduler
+
+def _build_wake_detection_jobs(
+    scheduler: BackgroundScheduler,
+    config,
+    repo: Repository,
+    garmin: GarminClient,
+    tg_bot: TelegramBot,
+    tz,
+) -> None:
+    """Add wake detection polling job and end-of-window fallback.
+
+    Instead of syncing and reporting at fixed times, poll Garmin every N minutes
+    for completed sleep data. When found, it means the user woke up and the
+    device synced — trigger the full sync + daily report at that moment.
+
+    A fallback job at WAKE_CHECK_END ensures the report is still sent even if
+    the device never synced (e.g. watch not worn).
+    """
+    wake_job = make_wake_check_job(garmin, repo, tg_bot)
+    fallback_job = make_wake_fallback_job(garmin, repo, tg_bot)
+
+    # Build hour range for the cron expression: e.g. "5-11" for 05:00-11:59
+    # The fallback job at WAKE_CHECK_END covers the final hour boundary.
+    start_h = config.wake_start_hour
+    end_h = config.wake_end_hour - 1 if config.wake_end_minute == 0 else config.wake_end_hour
+
+    # Ensure valid range (start might equal end if window is ~1 hour)
+    if end_h < start_h:
+        end_h = start_h
+
+    interval = config.wake_check_interval_minutes
+    minute_expr = f"*/{interval}" if interval < 60 else "0"
+
+    scheduler.add_job(
+        wake_job,
+        CronTrigger(hour=f"{start_h}-{end_h}", minute=minute_expr, timezone=tz),
+        id="wake_check",
+        name="Wake Detection Check",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=600,
+    )
+
+    scheduler.add_job(
+        fallback_job,
+        CronTrigger(hour=config.wake_end_hour, minute=config.wake_end_minute, timezone=tz),
+        id="wake_fallback",
+        name="Wake Detection Fallback",
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
 
 
 def run() -> None:
@@ -194,13 +273,24 @@ def run() -> None:
     # Build and start scheduler
     scheduler = _build_scheduler(config, repo, garmin, tg_bot)
     scheduler.start()
-    logger.info(
-        "Scheduler started. Sync at %02d:%02d, Report at %02d:%02d, Weekly on %s at %02d:%02d (%s)",
-        config.sync_hour, config.sync_minute,
-        config.report_hour, config.report_minute,
-        config.weekly_report_day, config.weekly_hour, config.weekly_minute,
-        config.timezone,
-    )
+    if config.wake_detection:
+        logger.info(
+            "Scheduler started (wake detection mode). Checking every %dmin from %s to %s, "
+            "Weekly on %s at %02d:%02d (%s)",
+            config.wake_check_interval_minutes,
+            config.wake_check_start, config.wake_check_end,
+            config.weekly_report_day, config.weekly_hour, config.weekly_minute,
+            config.timezone,
+        )
+    else:
+        logger.info(
+            "Scheduler started (fixed-time mode). Sync at %02d:%02d, Report at %02d:%02d, "
+            "Weekly on %s at %02d:%02d (%s)",
+            config.sync_hour, config.sync_minute,
+            config.report_hour, config.report_minute,
+            config.weekly_report_day, config.weekly_hour, config.weekly_minute,
+            config.timezone,
+        )
 
     # Start health check server if configured
     if config.health_port:
