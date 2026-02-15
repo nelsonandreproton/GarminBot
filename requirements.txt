@@ -1,6 +1,7 @@
 garminconnect>=0.2.0
 python-telegram-bot>=20.0
 apscheduler>=3.10.0
+pytz>=2024.1
 python-dotenv>=1.0.0
 sqlalchemy>=2.0.0
 tenacity>=8.2.0
