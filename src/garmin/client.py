@@ -43,6 +43,7 @@ class DailySummary:
     avg_stress: int | None = None
     body_battery_high: int | None = None
     body_battery_low: int | None = None
+    weight_kg: float | None = None
 
 
 def _assess_sleep_quality(score: int | None) -> str | None:
@@ -201,6 +202,33 @@ class GarminClient:
             logger.debug("Could not fetch body battery for %s: %s", date_str, exc)
         return result
 
+    def get_weight_data(self, day: date) -> float | None:
+        """Fetch weight for the given date from Garmin body composition.
+
+        Returns weight in kg, or None if no data available.
+        Never raises — fails silently.
+        """
+        client = self._ensure_authenticated()
+        date_str = day.isoformat()
+        try:
+            raw = client.get_body_composition(date_str)
+            if not raw:
+                return None
+            summaries = raw.get("dailyWeightSummaries") or []
+            if not summaries:
+                return None
+            # Each summary has "allWeightMetrics" list with weight entries
+            for summary in reversed(summaries):  # most recent first
+                entries = summary.get("allWeightMetrics") or []
+                for entry in entries:
+                    weight_grams = entry.get("weight")
+                    if weight_grams is not None and weight_grams > 0:
+                        return round(weight_grams / 1000, 1)
+            return None
+        except Exception as exc:
+            logger.debug("Could not fetch weight for %s: %s", date_str, exc)
+            return None
+
     def check_sleep_available(self, day: date) -> bool:
         """Check if completed sleep data exists for the given date.
 
@@ -265,9 +293,10 @@ class GarminClient:
             logger.error("Failed to fetch activity data: %s", exc)
 
         health = self.get_health_data(yesterday)
+        weight = self.get_weight_data(yesterday)
 
         # Store everything under yesterday's date (the "day being reported")
-        return DailySummary(date=yesterday, sleep=sleep, activity=activity, **health)
+        return DailySummary(date=yesterday, sleep=sleep, activity=activity, weight_kg=weight, **health)
 
     def get_summary_for_date(self, day: date) -> DailySummary:
         """Fetch all metrics for a specific historical date.
@@ -303,7 +332,8 @@ class GarminClient:
             logger.error("Failed to fetch activity data for %s: %s", day, exc)
 
         health = self.get_health_data(day)
-        return DailySummary(date=day, sleep=sleep, activity=activity, **health)
+        weight = self.get_weight_data(day)
+        return DailySummary(date=day, sleep=sleep, activity=activity, weight_kg=weight, **health)
 
     def to_metrics_dict(self, summary: DailySummary) -> dict[str, Any]:
         """Convert a DailySummary to a flat dict for the database repository.
@@ -330,5 +360,6 @@ class GarminClient:
             "avg_stress": summary.avg_stress,
             "body_battery_high": summary.body_battery_high,
             "body_battery_low": summary.body_battery_low,
+            "weight_kg": summary.weight_kg,
             "garmin_sync_success": has_data,
         }

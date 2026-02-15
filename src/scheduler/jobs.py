@@ -96,7 +96,8 @@ def make_weekly_report_job(repo: Repository, bot: TelegramBot, database_path: st
             return
 
         try:
-            _run_async(bot.send_weekly_report(stats))
+            weight_stats = repo.get_weekly_weight_stats(yesterday)
+            _run_async(bot.send_weekly_report(stats, weight_stats=weight_stats or None))
 
             # Chart
             start = stats.get("start_date", yesterday - timedelta(days=6))
@@ -270,6 +271,7 @@ def _send_daily_report(repo: Repository, bot: TelegramBot) -> None:
         "avg_stress": row.avg_stress,
         "body_battery_high": row.body_battery_high,
         "body_battery_low": row.body_battery_low,
+        "weight_kg": row.weight_kg,
     }
     # Attach daily nutrition totals if any food was logged
     nutrition = repo.get_daily_nutrition(yesterday)

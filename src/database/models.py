@@ -29,6 +29,7 @@ class DailyMetrics(Base):
     avg_stress = Column(Integer, nullable=True)
     body_battery_high = Column(Integer, nullable=True)
     body_battery_low = Column(Integer, nullable=True)
+    weight_kg = Column(Float, nullable=True)
     synced_at = Column(DateTime, default=lambda: datetime.now(UTC))
     garmin_sync_success = Column(Boolean, default=True)
 

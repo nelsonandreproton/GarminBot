@@ -42,6 +42,7 @@ class Repository:
                 "avg_stress": "INTEGER",
                 "body_battery_high": "INTEGER",
                 "body_battery_low": "INTEGER",
+                "weight_kg": "REAL",
             }
             for col, col_type in new_cols.items():
                 if col not in existing_cols:
@@ -286,6 +287,72 @@ class Repository:
         """Calculate stats for the 7 days ending 7 days before end_date (the prior week)."""
         prev_end = end_date - timedelta(days=7)
         return self.get_weekly_stats(prev_end)
+
+    # ------------------------------------------------------------------ #
+    # Weight operations                                                     #
+    # ------------------------------------------------------------------ #
+
+    def save_manual_weight(self, day: date, weight_kg: float) -> None:
+        """Save or update weight for a given day.
+
+        If a DailyMetrics row exists for the day, update its weight_kg.
+        Otherwise create a new row with just the weight.
+        """
+        with self._session() as session:
+            existing = session.query(DailyMetrics).filter_by(date=day).first()
+            if existing:
+                existing.weight_kg = weight_kg
+            else:
+                session.add(DailyMetrics(date=day, weight_kg=weight_kg, garmin_sync_success=False))
+        logger.debug("Saved manual weight %.1f kg for %s", weight_kg, day)
+
+    def get_latest_weight(self, before_date: date | None = None) -> tuple[float | None, date | None]:
+        """Return the most recent (weight_kg, date) pair, or (None, None)."""
+        with self._session() as session:
+            q = session.query(DailyMetrics).filter(DailyMetrics.weight_kg.isnot(None))
+            if before_date:
+                q = q.filter(DailyMetrics.date <= before_date)
+            row = q.order_by(DailyMetrics.date.desc()).first()
+            if row:
+                return row.weight_kg, row.date
+            return None, None
+
+    def get_weekly_weight_stats(self, end_date: date) -> dict[str, Any]:
+        """Calculate weight stats for the 7 days ending on end_date.
+
+        Returns dict with: current_weight, current_date, prev_weight, prev_date,
+        delta, min_weight, max_weight, entries_count.
+        Empty dict if no weight data.
+        """
+        start = end_date - timedelta(days=6)
+        rows = self.get_metrics_range(start, end_date)
+        weight_rows = [(r.weight_kg, r.date) for r in rows if r.weight_kg is not None]
+
+        if not weight_rows:
+            return {}
+
+        weights = [w for w, _ in weight_rows]
+        current_weight, current_date = weight_rows[-1]
+
+        # Previous week's last weight for delta
+        prev_start = start - timedelta(days=7)
+        prev_rows = self.get_metrics_range(prev_start, start - timedelta(days=1))
+        prev_weight_rows = [(r.weight_kg, r.date) for r in prev_rows if r.weight_kg is not None]
+        prev_weight = prev_weight_rows[-1][0] if prev_weight_rows else None
+        prev_date = prev_weight_rows[-1][1] if prev_weight_rows else None
+
+        delta = round(current_weight - prev_weight, 1) if prev_weight is not None else None
+
+        return {
+            "current_weight": current_weight,
+            "current_date": current_date,
+            "prev_weight": prev_weight,
+            "prev_date": prev_date,
+            "delta": delta,
+            "min_weight": min(weights),
+            "max_weight": max(weights),
+            "entries_count": len(weight_rows),
+        }
 
     # ------------------------------------------------------------------ #
     # Nutrition operations                                                  #

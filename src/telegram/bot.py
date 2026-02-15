@@ -33,6 +33,7 @@ from .formatters import (
     format_nutrition_day,
     format_status,
     format_weekly_report,
+    format_weight_status,
 )
 
 # ConversationHandler states
@@ -109,8 +110,8 @@ class TelegramBot:
         await self._send(text)
         logger.info("Daily summary sent")
 
-    async def send_weekly_report(self, stats: dict[str, Any]) -> None:
-        """Send the weekly report message with week-over-week comparison and nutrition."""
+    async def send_weekly_report(self, stats: dict[str, Any], weight_stats: dict[str, Any] | None = None) -> None:
+        """Send the weekly report message with week-over-week comparison, weight, and nutrition."""
         end_date = stats.get("end_date")
         prev_stats = self._repo.get_previous_weekly_stats(end_date) if end_date else None
         weekly_nutrition = self._repo.get_weekly_nutrition(end_date) if end_date else None
@@ -118,6 +119,7 @@ class TelegramBot:
             stats,
             prev_stats=prev_stats,
             weekly_nutrition=weekly_nutrition if weekly_nutrition and weekly_nutrition.get("days_with_data", 0) > 0 else None,
+            weight_stats=weight_stats,
         )
         await self._send(text)
         logger.info("Weekly report sent")
@@ -407,7 +409,7 @@ class TelegramBot:
             return
 
         if len(args) < 2:
-            await update.message.reply_text("Uso: /objetivo passos 8000  ou  /objetivo sono 7.5")
+            await update.message.reply_text("Uso: /objetivo passos 8000  ou  /objetivo sono 7.5  ou  /objetivo peso 75")
             return
 
         metric_arg = args[0].lower()
@@ -431,8 +433,46 @@ class TelegramBot:
             h = int(value)
             m = int(round((value - h) * 60))
             await update.message.reply_text(f"✅ Objetivo de sono definido: {h}h {m:02d}min")
+        elif metric_arg in ("peso", "weight"):
+            if not 20 < value < 300:
+                await update.message.reply_text("Objetivo de peso deve ser entre 20 e 300 kg.")
+                return
+            self._repo.set_goal("weight_kg", value)
+            await update.message.reply_text(f"✅ Objetivo de peso definido: {value:.1f} kg")
         else:
-            await update.message.reply_text("Métrica desconhecida. Usa 'passos' ou 'sono'.")
+            await update.message.reply_text("Métrica desconhecida. Usa 'passos', 'sono' ou 'peso'.")
+
+    async def _cmd_peso(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """/peso [valor] — view or register weight."""
+        if not self._auth_check(update) or _is_rate_limited(update.effective_chat.id):
+            return
+        args = context.args or []
+
+        if args:
+            # Register weight
+            try:
+                weight = float(args[0].replace(",", "."))
+                if not 20 < weight < 300:
+                    await update.message.reply_text("Peso deve estar entre 20 e 300 kg.")
+                    return
+            except ValueError:
+                await update.message.reply_text("Valor inválido. Uso: /peso 78.5")
+                return
+            today = date.today()
+            self._repo.save_manual_weight(today, weight)
+            await update.message.reply_text(
+                f"✅ Peso registado: *{weight:.1f} kg* ({today.strftime('%d/%m/%Y')})",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return
+
+        # Show current weight status
+        yesterday = date.today() - timedelta(days=1)
+        current_weight, current_date = self._repo.get_latest_weight()
+        weight_stats = self._repo.get_weekly_weight_stats(yesterday)
+        goals = self._repo.get_goals()
+        text = format_weight_status(current_weight, current_date, weight_stats or None, goals)
+        await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
 
     # ------------------------------------------------------------------ #
     # Nutrition handlers                                                    #
@@ -648,6 +688,7 @@ class TelegramBot:
         app.add_handler(CommandHandler("exportar", self._cmd_exportar))
         app.add_handler(CommandHandler("backfill", self._cmd_backfill))
         app.add_handler(CommandHandler("objetivo", self._cmd_objetivo))
+        app.add_handler(CommandHandler("peso", self._cmd_peso))
         app.add_handler(CommandHandler("nutricao", self._cmd_nutricao))
         app.add_handler(CommandHandler("dieta", self._cmd_nutricao))
         app.add_handler(CommandHandler("apagar", self._cmd_apagar))
@@ -688,6 +729,7 @@ class TelegramBot:
             BotCommand("historico", "Ver dia específico ou últimos N dias"),
             BotCommand("exportar", "Exportar dados em CSV"),
             BotCommand("objetivo", "Ver ou definir objetivos"),
+            BotCommand("peso", "Ver ou registar peso (ex: /peso 78.5)"),
             BotCommand("status", "Estado do bot"),
             BotCommand("ajuda", "Lista de comandos"),
             BotCommand("comi", "Registar alimento (ex: /comi 2 ovos e 1 torrada)"),

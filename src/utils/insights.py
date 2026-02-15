@@ -70,6 +70,26 @@ def generate_insights(rows: list[Any], goals: dict[str, float] | None = None) ->
         if ratio >= 0.6:
             insights.append(f"⚠️ Mais de 60% das noites com menos de {sleep_goal:.1f}h de sono.")
 
+    # --- Weight trends ---------------------------------------------------
+    weight_list = [(r.weight_kg, r.date) for r in rows if getattr(r, "weight_kg", None) is not None]
+    if len(weight_list) >= 2:
+        first_w = weight_list[0][0]
+        last_w = weight_list[-1][0]
+        delta = last_w - first_w
+        weight_goal = (goals or {}).get("weight_kg")
+
+        if abs(delta) >= 0.3:
+            days_span = (weight_list[-1][1] - weight_list[0][1]).days or 1
+            sign = "+" if delta > 0 else ""
+            insights.append(f"⚖️ Peso: {sign}{delta:.1f} kg nos últimos {days_span} dias ({last_w:.1f} kg)")
+
+        if weight_goal is not None:
+            diff = last_w - weight_goal
+            if abs(diff) < 0.5:
+                insights.append(f"🎯 Peso muito próximo do objetivo ({weight_goal:.1f} kg)!")
+            elif diff < 0:
+                insights.append(f"✅ Peso abaixo do objetivo ({last_w:.1f} vs {weight_goal:.1f} kg)")
+
     return insights
 
 

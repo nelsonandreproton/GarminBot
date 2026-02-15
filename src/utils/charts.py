@@ -42,9 +42,17 @@ def generate_weekly_chart(rows: list[Any], goals: dict[str, float] | None = None
         dates = [r.date.strftime("%d/%m") for r in rows]
         steps = [r.steps or 0 for r in rows]
         sleep = [r.sleep_hours or 0 for r in rows]
+        weights = [getattr(r, "weight_kg", None) for r in rows]
+        has_weight = any(w is not None for w in weights)
+        weight_goal = (goals or {}).get("weight_kg")
 
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6), facecolor="#1a1a2e")
+        n_plots = 3 if has_weight else 2
+        fig_height = 9 if has_weight else 6
+        fig, axes = plt.subplots(n_plots, 1, figsize=(8, fig_height), facecolor="#1a1a2e")
         fig.suptitle("Últimos 7 dias", color="white", fontsize=14, fontweight="bold")
+
+        ax1 = axes[0]
+        ax2 = axes[1]
 
         bar_colors = ["#4ecca3" if s >= steps_goal else "#e94560" for s in steps]
         ax1.bar(dates, steps, color=bar_colors, edgecolor="none")
@@ -64,6 +72,25 @@ def generate_weekly_chart(rows: list[Any], goals: dict[str, float] | None = None
         ax2.tick_params(colors="white")
         for spine in ax2.spines.values():
             spine.set_edgecolor("#444")
+
+        if has_weight:
+            ax3 = axes[2]
+            # Plot weight as scatter + line for days with data
+            w_dates = [d for d, w in zip(dates, weights) if w is not None]
+            w_vals = [w for w in weights if w is not None]
+            w_indices = [i for i, w in enumerate(weights) if w is not None]
+            ax3.plot(w_dates, w_vals, color="#4ecca3", marker="o", linewidth=2, markersize=6)
+            if weight_goal is not None:
+                ax3.axhline(weight_goal, color="#f8b500", linestyle="--", linewidth=1.2, alpha=0.7, label=f"Objetivo: {weight_goal:.0f} kg")
+                ax3.legend(facecolor="#16213e", labelcolor="white", fontsize=8)
+            if w_vals:
+                margin = max(1.0, (max(w_vals) - min(w_vals)) * 0.3)
+                ax3.set_ylim(min(w_vals) - margin, max(w_vals) + margin)
+            ax3.set_ylabel("Peso (kg)", color="white")
+            ax3.set_facecolor("#16213e")
+            ax3.tick_params(colors="white")
+            for spine in ax3.spines.values():
+                spine.set_edgecolor("#444")
 
         plt.tight_layout()
         buf = io.BytesIO()
