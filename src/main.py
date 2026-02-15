@@ -136,7 +136,7 @@ def _build_fixed_time_jobs(
 ) -> None:
     """Add the original fixed-time sync, report, and retry jobs."""
     sync_job = make_sync_job(garmin, repo)
-    report_job = make_daily_report_job(repo, tg_bot)
+    report_job = make_daily_report_job(repo, tg_bot, config)
 
     scheduler.add_job(
         sync_job,
@@ -189,8 +189,8 @@ def _build_wake_detection_jobs(
     A fallback job at WAKE_CHECK_END ensures the report is still sent even if
     the device never synced (e.g. watch not worn).
     """
-    wake_job = make_wake_check_job(garmin, repo, tg_bot)
-    fallback_job = make_wake_fallback_job(garmin, repo, tg_bot)
+    wake_job = make_wake_check_job(garmin, repo, tg_bot, config)
+    fallback_job = make_wake_fallback_job(garmin, repo, tg_bot, config)
 
     # Build hour range for the cron expression: e.g. "5-11" for 05:00-11:59
     # The fallback job at WAKE_CHECK_END covers the final hour boundary.

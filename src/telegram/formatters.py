@@ -55,6 +55,7 @@ def format_daily_summary(
     weekly_stats: dict[str, Any] | None = None,
     alerts: list[str] | None = None,
     nutrition: dict[str, Any] | None = None,
+    workout: str | None = None,
 ) -> str:
     """Format a daily health summary message for Telegram.
 
@@ -65,6 +66,7 @@ def format_daily_summary(
         weekly_stats: Optional 7-day averages for comparison section.
         alerts: Optional list of alert strings to append.
         nutrition: Optional daily nutrition totals (overrides metrics["nutrition"]).
+        workout: Optional LLM-generated workout recommendation text.
 
     Returns:
         Markdown-formatted string ready to send via Telegram.
@@ -138,6 +140,9 @@ def format_daily_summary(
 
     if alerts:
         lines += ["", "💬 *Alertas:*"] + [f"• {a}" for a in alerts]
+
+    if workout:
+        lines += ["", format_workout_section(workout)]
 
     return "\n".join(lines)
 
@@ -307,6 +312,7 @@ def format_help_message() -> str:
         "/exportar N — Exportar dados em CSV\n"
         "/objetivo passos/sono/peso valor — Ver ou definir objetivos\n"
         "/peso [valor] — Ver ou registar peso\n"
+        "/treino — Gerar treino recomendado\n"
         "/status — Estado do bot\n"
         "/ajuda — Esta mensagem"
     )
@@ -390,6 +396,18 @@ def format_nutrition_summary(nutrition: dict[str, Any]) -> str:
             lines.append(f"• Excedente: +{abs(deficit)} kcal ({abs(pct)}%)")
 
     return "\n".join(lines)
+
+
+def format_workout_section(workout: str) -> str:
+    """Format a workout recommendation section for the daily report.
+
+    Args:
+        workout: LLM-generated workout text.
+
+    Returns:
+        Markdown-formatted section string (without leading newline).
+    """
+    return f"💪 *Treino Recomendado*\n\n{workout}"
 
 
 def format_weekly_nutrition(weekly_nutrition: dict[str, Any]) -> str:

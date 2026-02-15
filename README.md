@@ -9,7 +9,8 @@ A Python bot that syncs Garmin Connect data daily and sends formatted health sum
 - **Weekly report** — every Sunday: 7-day stats, a bar chart, and smart insights
 - **Monthly stats** — via `/mes` command
 - **Nutrition tracking** — log food via text or barcode photo, with Groq LLM parsing (optional, free tier)
-- **All commands in Portuguese** — `/hoje`, `/ontem`, `/semana`, `/mes`, `/sync`, `/status`, `/comi`, `/nutricao`
+- **Workout recommendations** — daily gym workout based on sleep, nutrition, equipment, and movement patterns (Squat/Push/Pull/Hinge/Carry)
+- **All commands in Portuguese** — `/hoje`, `/ontem`, `/semana`, `/mes`, `/sync`, `/status`, `/comi`, `/nutricao`, `/treino`
 - **Robust error handling** — retries with exponential backoff, partial data support, Telegram error alerts
 - **Token persistence** — Garmin OAuth2 token saved to disk, reused across restarts
 - **Automatic backups** — weekly SQLite backup with 7-copy retention
@@ -90,7 +91,9 @@ All settings live in `.env`. See `.env.example` for the full list with comments.
 | `TIMEZONE` | `Europe/Lisbon` | Timezone for scheduling |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `LOG_FILE` | `./logs/bot.log` | Log file path |
-| `GROQ_API_KEY` | — | Groq API key (optional, enables `/comi` and `/nutricao`) |
+| `GROQ_API_KEY` | — | Groq API key (optional, enables `/comi`, `/nutricao`, `/treino`) |
+| `GYM_EQUIPMENT` | — | Equipment list (optional, enables workout recommendations) |
+| `GYM_TRAINING_MINUTES` | `45` | Max workout duration in minutes |
 
 ## Telegram Commands
 
@@ -105,6 +108,7 @@ All settings live in `.env`. See `.env.example` for the full list with comments.
 | `/comi` | Register food eaten (text or barcode photo) |
 | `/nutricao` | Daily nutrition summary |
 | `/apagar` | Delete last food entry |
+| `/treino` | Generate a workout recommendation for today |
 
 ## Deployment
 
@@ -209,6 +213,8 @@ GarminBot/
 │   │   ├── service.py       # Orchestrates parse → lookup → fallback
 │   │   ├── openfoodfacts.py # OpenFoodFacts API client
 │   │   └── barcode.py       # Barcode decoding from photos
+│   ├── training/
+│   │   └── recommender.py   # Groq LLM: workout generation
 │   ├── telegram/
 │   │   ├── bot.py           # Bot application and command handlers
 │   │   └── formatters.py    # Message formatting

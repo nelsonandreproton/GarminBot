@@ -37,6 +37,8 @@ class Config:
     wake_check_interval_minutes: int
     wake_check_start: str
     wake_check_end: str
+    gym_equipment: str | None
+    gym_training_minutes: int
 
     # Derived fields
     sync_hour: int = field(init=False)
@@ -113,6 +115,10 @@ def load_config() -> Config:
     wake_check_start = os.getenv("WAKE_CHECK_START", "05:00")
     wake_check_end = os.getenv("WAKE_CHECK_END", "12:00")
 
+    # Gym training recommendation (disabled if GYM_EQUIPMENT not set)
+    gym_equipment = os.getenv("GYM_EQUIPMENT") or None
+    gym_training_minutes = int(os.getenv("GYM_TRAINING_MINUTES", "45"))
+
     return Config(
         garmin_email=required["GARMIN_EMAIL"],  # type: ignore[arg-type]
         garmin_password=required["GARMIN_PASSWORD"],  # type: ignore[arg-type]
@@ -134,4 +140,6 @@ def load_config() -> Config:
         wake_check_interval_minutes=wake_check_interval_minutes,
         wake_check_start=wake_check_start,
         wake_check_end=wake_check_end,
+        gym_equipment=gym_equipment,
+        gym_training_minutes=gym_training_minutes,
     )

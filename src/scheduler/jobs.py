@@ -7,6 +7,7 @@ import logging
 import time as _time
 from datetime import date, timedelta
 
+from ..config import Config
 from ..database.repository import Repository
 from ..garmin.client import GarminClient
 from ..telegram.bot import TelegramBot
@@ -54,19 +55,20 @@ def make_sync_job(garmin: GarminClient, repo: Repository) -> callable:
     return sync_yesterday_data_job
 
 
-def make_daily_report_job(repo: Repository, bot: TelegramBot) -> callable:
+def make_daily_report_job(repo: Repository, bot: TelegramBot, config: Config) -> callable:
     """Return a callable that sends the daily Telegram report.
 
     Args:
         repo: Database repository.
         bot: TelegramBot instance.
+        config: Application configuration.
 
     Returns:
         Callable suitable for APScheduler.
     """
     def send_daily_report_job() -> None:
         logger.info("Job: sending daily report")
-        _send_daily_report(repo, bot)
+        _send_daily_report(repo, bot, config)
 
     return send_daily_report_job
 
@@ -150,6 +152,7 @@ def make_wake_check_job(
     garmin: GarminClient,
     repo: Repository,
     bot: TelegramBot,
+    config: Config,
 ) -> callable:
     """Return a job that polls Garmin for completed sleep data to detect wake-up.
 
@@ -164,6 +167,7 @@ def make_wake_check_job(
         garmin: Authenticated GarminClient.
         repo: Database repository.
         bot: TelegramBot instance.
+        config: Application configuration.
 
     Returns:
         Callable suitable for APScheduler.
@@ -196,7 +200,7 @@ def make_wake_check_job(
             logger.error("Wake check: sync failed: %s", exc, exc_info=True)
 
         # Send the daily report
-        _send_daily_report(repo, bot)
+        _send_daily_report(repo, bot, config)
 
     return wake_check_job
 
@@ -205,6 +209,7 @@ def make_wake_fallback_job(
     garmin: GarminClient,
     repo: Repository,
     bot: TelegramBot,
+    config: Config,
 ) -> callable:
     """Return a fallback job that runs at the end of the wake detection window.
 
@@ -216,6 +221,7 @@ def make_wake_fallback_job(
         garmin: Authenticated GarminClient.
         repo: Database repository.
         bot: TelegramBot instance.
+        config: Application configuration.
 
     Returns:
         Callable suitable for APScheduler.
@@ -240,12 +246,12 @@ def make_wake_fallback_job(
             logger.error("Wake fallback: sync failed: %s", exc, exc_info=True)
 
         # Send the report regardless
-        _send_daily_report(repo, bot)
+        _send_daily_report(repo, bot, config)
 
     return wake_fallback_job
 
 
-def _send_daily_report(repo: Repository, bot: TelegramBot) -> None:
+def _send_daily_report(repo: Repository, bot: TelegramBot, config: Config) -> None:
     """Shared helper: send the daily report and mark it as sent."""
     yesterday = date.today() - timedelta(days=1)
     row = repo.get_metrics_by_date(yesterday)
@@ -281,8 +287,26 @@ def _send_daily_report(repo: Repository, bot: TelegramBot) -> None:
             "active_calories": row.active_calories,
             "resting_calories": row.resting_calories,
         }
+
+    # Generate workout recommendation if gym equipment is configured
+    workout = None
+    if config.gym_equipment and config.groq_api_key:
+        from ..training.recommender import generate_workout
+        logger.info("Generating workout recommendation")
+        workout = generate_workout(
+            metrics=metrics,
+            nutrition=metrics.get("nutrition"),
+            equipment=config.gym_equipment,
+            training_minutes=config.gym_training_minutes,
+            api_key=config.groq_api_key,
+        )
+        if workout:
+            logger.info("Workout recommendation generated")
+        else:
+            logger.warning("Workout generation returned None")
+
     try:
-        _run_async(bot.send_daily_summary(metrics))
+        _run_async(bot.send_daily_summary(metrics, workout=workout))
         repo.log_report_sent()
         logger.info("Daily report sent for %s", yesterday)
     except Exception as exc:

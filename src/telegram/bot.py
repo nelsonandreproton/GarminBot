@@ -96,7 +96,7 @@ class TelegramBot:
             parse_mode=ParseMode.MARKDOWN,
         )
 
-    async def send_daily_summary(self, metrics: dict[str, Any]) -> None:
+    async def send_daily_summary(self, metrics: dict[str, Any], workout: str | None = None) -> None:
         """Fetch weekly context, generate alerts, and send the daily summary message."""
         day = metrics.get("date", date.today())
         weekly = self._repo.get_weekly_stats(day)
@@ -106,7 +106,7 @@ class TelegramBot:
             goals = self._repo.get_goals()
             recent_rows = self._repo.get_metrics_range(day - timedelta(days=6), day)
             alerts = generate_daily_alerts(metrics, recent_rows, goals)
-        text = format_daily_summary(metrics, weekly_stats=weekly, alerts=alerts or None)
+        text = format_daily_summary(metrics, weekly_stats=weekly, alerts=alerts or None, workout=workout)
         await self._send(text)
         logger.info("Daily summary sent")
 
@@ -669,6 +669,57 @@ class TelegramBot:
             await update.message.reply_text("Não há entradas para apagar hoje.")
 
     # ------------------------------------------------------------------ #
+    # Training handler                                                     #
+    # ------------------------------------------------------------------ #
+
+    async def _cmd_treino(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """/treino — generate a workout recommendation for today."""
+        if not self._auth_check(update) or _is_rate_limited(update.effective_chat.id):
+            return
+        if not self._config.gym_equipment:
+            await update.message.reply_text(
+                "⚠️ Equipamento de ginásio não configurado. Adiciona GYM_EQUIPMENT ao ficheiro .env."
+            )
+            return
+        if not self._config.groq_api_key:
+            await update.message.reply_text(
+                "⚠️ GROQ_API_KEY não configurada. Necessário para gerar treinos."
+            )
+            return
+
+        await update.message.reply_text("⏳ A gerar treino...")
+
+        yesterday = date.today() - timedelta(days=1)
+        row = self._repo.get_metrics_by_date(yesterday)
+        metrics: dict[str, Any] = {}
+        if row:
+            metrics = {
+                "sleep_hours": row.sleep_hours,
+                "sleep_score": row.sleep_score,
+                "steps": row.steps,
+                "active_calories": row.active_calories,
+                "avg_stress": row.avg_stress,
+                "body_battery_high": row.body_battery_high,
+                "body_battery_low": row.body_battery_low,
+            }
+        nutrition = self._repo.get_daily_nutrition(yesterday)
+        nutrition_data = nutrition if nutrition.get("entry_count", 0) > 0 else None
+
+        from ..training.recommender import generate_workout
+        from .formatters import format_workout_section
+        workout = generate_workout(
+            metrics=metrics,
+            nutrition=nutrition_data,
+            equipment=self._config.gym_equipment,
+            training_minutes=self._config.gym_training_minutes,
+            api_key=self._config.groq_api_key,
+        )
+        if workout:
+            await update.message.reply_text(format_workout_section(workout))
+        else:
+            await update.message.reply_text("❌ Não consegui gerar o treino. Tenta novamente.")
+
+    # ------------------------------------------------------------------ #
     # Application lifecycle                                                #
     # ------------------------------------------------------------------ #
 
@@ -692,6 +743,7 @@ class TelegramBot:
         app.add_handler(CommandHandler("nutricao", self._cmd_nutricao))
         app.add_handler(CommandHandler("dieta", self._cmd_nutricao))
         app.add_handler(CommandHandler("apagar", self._cmd_apagar))
+        app.add_handler(CommandHandler("treino", self._cmd_treino))
 
         # Nutrition conversation (text entry + barcode)
         conv = ConversationHandler(
@@ -735,6 +787,7 @@ class TelegramBot:
             BotCommand("comi", "Registar alimento (ex: /comi 2 ovos e 1 torrada)"),
             BotCommand("nutricao", "Resumo nutricional do dia"),
             BotCommand("apagar", "Apagar último alimento registado"),
+            BotCommand("treino", "Gerar treino recomendado"),
         ]
         await bot.set_my_commands(commands)
         logger.info("Telegram commands registered with BotFather")

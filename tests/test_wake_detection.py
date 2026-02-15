@@ -164,6 +164,15 @@ def test_check_sleep_available_false_on_exception():
 from src.scheduler.jobs import make_wake_check_job, make_wake_fallback_job
 
 
+def _mock_config():
+    """Return a mock config with gym features disabled."""
+    config = MagicMock()
+    config.gym_equipment = None
+    config.gym_training_minutes = 45
+    config.groq_api_key = None
+    return config
+
+
 def test_wake_check_job_skips_if_report_already_sent():
 
     garmin = MagicMock()
@@ -171,7 +180,7 @@ def test_wake_check_job_skips_if_report_already_sent():
     bot = MagicMock()
     repo.has_report_sent_today.return_value = True
 
-    job = make_wake_check_job(garmin, repo, bot)
+    job = make_wake_check_job(garmin, repo, bot, _mock_config())
     job()
 
     # Should not check Garmin at all
@@ -187,7 +196,7 @@ def test_wake_check_job_skips_if_no_sleep_data():
     repo.has_report_sent_today.return_value = False
     garmin.check_sleep_available.return_value = False
 
-    job = make_wake_check_job(garmin, repo, bot)
+    job = make_wake_check_job(garmin, repo, bot, _mock_config())
     job()
 
     # Should not sync
@@ -228,10 +237,11 @@ def test_wake_check_job_triggers_sync_and_report():
     row_mock.avg_stress = None
     row_mock.body_battery_high = None
     row_mock.body_battery_low = None
+    row_mock.weight_kg = None
     repo.get_metrics_by_date.return_value = row_mock
     repo.get_daily_nutrition.return_value = {"entry_count": 0}
 
-    job = make_wake_check_job(garmin, repo, bot)
+    job = make_wake_check_job(garmin, repo, bot, _mock_config())
     job()
 
     # Should have synced
@@ -249,7 +259,7 @@ def test_wake_fallback_job_skips_if_report_sent():
     bot = MagicMock()
     repo.has_report_sent_today.return_value = True
 
-    job = make_wake_fallback_job(garmin, repo, bot)
+    job = make_wake_fallback_job(garmin, repo, bot, _mock_config())
     job()
 
     garmin.get_yesterday_summary.assert_not_called()
@@ -288,10 +298,11 @@ def test_wake_fallback_job_forces_sync_and_report():
     row_mock.avg_stress = None
     row_mock.body_battery_high = None
     row_mock.body_battery_low = None
+    row_mock.weight_kg = None
     repo.get_metrics_by_date.return_value = row_mock
     repo.get_daily_nutrition.return_value = {"entry_count": 0}
 
-    job = make_wake_fallback_job(garmin, repo, bot)
+    job = make_wake_fallback_job(garmin, repo, bot, _mock_config())
     job()
 
     garmin.get_yesterday_summary.assert_called_once()
