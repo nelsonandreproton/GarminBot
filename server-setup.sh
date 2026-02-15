@@ -27,6 +27,16 @@ if id "$BOTUSER" &>/dev/null; then
 else
     adduser --disabled-password --gecos "GarminBot Service" "$BOTUSER"
     echo "  User '$BOTUSER' created."
+    echo "  Setting password for '$BOTUSER' (needed for sudo):"
+    passwd "$BOTUSER"
+fi
+
+# Ensure user is in sudo group
+if groups "$BOTUSER" | grep -q sudo; then
+    echo "  User '$BOTUSER' already in sudo group."
+else
+    usermod -aG sudo "$BOTUSER"
+    echo "  Added '$BOTUSER' to sudo group."
 fi
 
 # ---- 3. Install Docker ----
