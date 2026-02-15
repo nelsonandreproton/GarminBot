@@ -6,11 +6,12 @@ from unittest.mock import MagicMock
 from src.utils.insights import generate_insights, _count_streak
 
 
-def _make_row(day: date, steps: int | None = None, sleep_hours: float | None = None):
+def _make_row(day: date, steps: int | None = None, sleep_hours: float | None = None, weight_kg: float | None = None):
     row = MagicMock()
     row.date = day
     row.steps = steps
     row.sleep_hours = sleep_hours
+    row.weight_kg = weight_kg
     return row
 
 

@@ -102,7 +102,8 @@ def format_daily_summary(
     avg_stress = metrics.get("avg_stress")
     bb_high = metrics.get("body_battery_high")
     bb_low = metrics.get("body_battery_low")
-    if any(v is not None for v in [rhr, avg_stress, bb_high, bb_low]):
+    weight = metrics.get("weight_kg")
+    if any(v is not None for v in [rhr, avg_stress, bb_high, bb_low, weight]):
         lines += ["", "❤️ *Saúde*"]
         if rhr is not None:
             lines.append(f"• FC repouso: {rhr} bpm")
@@ -110,6 +111,8 @@ def format_daily_summary(
             lines.append(f"• Stress médio: {avg_stress}/100")
         if bb_high is not None and bb_low is not None:
             lines.append(f"• Body Battery: {bb_low}–{bb_high}")
+        if weight is not None:
+            lines.append(f"• Peso: {weight:.1f} kg")
 
     if weekly_stats:
         avg_sleep = weekly_stats.get("sleep_avg_hours")
@@ -143,6 +146,7 @@ def format_weekly_report(
     stats: dict[str, Any],
     prev_stats: dict[str, Any] | None = None,
     weekly_nutrition: dict[str, Any] | None = None,
+    weight_stats: dict[str, Any] | None = None,
 ) -> str:
     """Format a 7-day summary message for Telegram.
 
@@ -186,6 +190,9 @@ def format_weekly_report(
         lines += ["", "📊 *vs semana anterior:*"]
         lines.append(f"• Sono: {_fmt_hours(stats.get('sleep_avg_hours'))}{_sleep_trend(stats.get('sleep_avg_hours'), prev_sleep)}")
         lines.append(f"• Passos médios: {_fmt_steps(stats.get('steps_avg'))}{_trend(stats.get('steps_avg'), prev_steps)}")
+
+    if weight_stats and weight_stats.get("current_weight") is not None:
+        lines += ["", format_weekly_weight(weight_stats)]
 
     if weekly_nutrition and weekly_nutrition.get("days_with_data", 0) > 0:
         lines += ["", format_weekly_nutrition(weekly_nutrition)]
@@ -298,7 +305,8 @@ def format_help_message() -> str:
         "/backfill N — Sincronizar últimos N dias\n"
         "/historico YYYY-MM-DD ou N — Ver dia ou últimos N dias\n"
         "/exportar N — Exportar dados em CSV\n"
-        "/objetivo passos/sono valor — Ver ou definir objetivos\n"
+        "/objetivo passos/sono/peso valor — Ver ou definir objetivos\n"
+        "/peso [valor] — Ver ou registar peso\n"
         "/status — Estado do bot\n"
         "/ajuda — Esta mensagem"
     )
@@ -406,6 +414,66 @@ def format_weekly_nutrition(weekly_nutrition: dict[str, Any]) -> str:
         f"• P: {int(avg_prot)}g | G: {int(avg_fat)}g | HC: {int(avg_carbs)}g | Fibra: {int(avg_fiber)}g",
         f"• Dias com registo: {days}",
     ]
+    return "\n".join(lines)
+
+
+def format_weekly_weight(weight_stats: dict[str, Any]) -> str:
+    """Format weekly weight section for the weekly report."""
+    current = weight_stats.get("current_weight")
+    current_date = weight_stats.get("current_date")
+    delta = weight_stats.get("delta")
+    min_w = weight_stats.get("min_weight")
+    max_w = weight_stats.get("max_weight")
+
+    lines = ["⚖️ *Peso*"]
+    day_str = f" ({_day_name_pt(current_date)})" if current_date else ""
+    lines.append(f"• Último registo: {current:.1f} kg{day_str}")
+    if delta is not None:
+        sign = "+" if delta > 0 else ""
+        lines.append(f"• Variação: {sign}{delta:.1f} kg vs semana passada")
+    if min_w is not None and max_w is not None and min_w != max_w:
+        lines.append(f"• Intervalo: {min_w:.1f} – {max_w:.1f} kg")
+    return "\n".join(lines)
+
+
+def format_weight_status(
+    current_weight: float | None,
+    current_date: date | None,
+    weight_stats: dict[str, Any] | None = None,
+    goals: dict[str, float] | None = None,
+) -> str:
+    """Format the /peso command response."""
+    if current_weight is None:
+        return "⚖️ *Peso*\n\nSem registos de peso. Usa `/peso 78.5` para registar."
+
+    day_str = current_date.strftime("%d/%m") if current_date else "—"
+    lines = [
+        "⚖️ *Peso — últimos 7 dias*",
+        "",
+        f"• Atual: {current_weight:.1f} kg ({day_str})",
+    ]
+
+    if weight_stats:
+        prev = weight_stats.get("prev_weight")
+        delta = weight_stats.get("delta")
+        if prev is not None and delta is not None:
+            sign = "+" if delta > 0 else ""
+            lines.append(f"• 7 dias atrás: {prev:.1f} kg")
+            lines.append(f"• Variação: {sign}{delta:.1f} kg")
+        entries = weight_stats.get("entries_count", 0)
+        if entries > 1:
+            lines.append(f"• Registos esta semana: {entries}")
+
+    weight_goal = (goals or {}).get("weight_kg")
+    if weight_goal is not None:
+        diff = current_weight - weight_goal
+        if abs(diff) < 0.1:
+            lines.append(f"• Objetivo: {weight_goal:.1f} kg — atingido!")
+        elif diff > 0:
+            lines.append(f"• Objetivo: {weight_goal:.1f} kg (faltam {diff:.1f} kg)")
+        else:
+            lines.append(f"• Objetivo: {weight_goal:.1f} kg ({abs(diff):.1f} kg abaixo)")
+
     return "\n".join(lines)
 
 
@@ -517,9 +585,13 @@ def format_goals(goals: dict[str, float]) -> str:
     """Format current user goals for display."""
     steps = int(goals.get("steps", 10000))
     sleep_h = goals.get("sleep_hours", 7.0)
-    return (
-        "🎯 *Objetivos atuais:*\n"
-        f"\n"
-        f"• Passos diários: {steps:,}".replace(",", ".") + "\n"
-        f"• Sono mínimo: {_fmt_hours(sleep_h)}"
-    )
+    weight_kg = goals.get("weight_kg")
+    lines = [
+        "🎯 *Objetivos atuais:*",
+        "",
+        f"• Passos diários: {steps:,}".replace(",", "."),
+        f"• Sono mínimo: {_fmt_hours(sleep_h)}",
+    ]
+    if weight_kg is not None:
+        lines.append(f"• Peso alvo: {weight_kg:.1f} kg")
+    return "\n".join(lines)
