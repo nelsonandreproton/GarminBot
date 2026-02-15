@@ -108,93 +108,54 @@ All settings live in `.env`. See `.env.example` for the full list with comments.
 
 ## Deployment
 
-### Docker on Ubuntu VPS (recommended)
+### Server Setup (Hetzner / Ubuntu VPS)
+
+Run the setup script on a fresh Ubuntu VPS as root:
 
 ```bash
-# On the server
-git clone <repo-url>
-cd GarminBot
+scp server-setup.sh root@your-server:
+ssh root@your-server bash server-setup.sh
+```
 
-# Create .env
+This creates a `garminbot` user, installs Docker, configures the firewall (SSH only), and hardens SSH. The script is idempotent and safe to re-run.
+
+### First Deploy
+
+```bash
+ssh garminbot@your-server
+
+git clone <repo-url> ~/GarminBot
+cd ~/GarminBot
 cp .env.example .env
 nano .env  # fill in credentials
 
-# Build and run
-docker build -t garminbot .
-docker run -d \
-  --name garminbot \
-  --restart unless-stopped \
-  --env-file .env \
-  -v $(pwd)/data:/app/data \
-  -v $(pwd)/logs:/app/logs \
-  garminbot
-
-# View logs
-docker logs -f garminbot
+docker compose up -d --build
+docker compose logs -f
 ```
 
-**Update the bot:**
+### Updating
 
 ```bash
-git pull
-docker build -t garminbot .
-docker stop garminbot && docker rm garminbot
-docker run -d \
-  --name garminbot \
-  --restart unless-stopped \
-  --env-file .env \
-  -v $(pwd)/data:/app/data \
-  -v $(pwd)/logs:/app/logs \
-  garminbot
+cd ~/GarminBot
+bash deploy.sh
 ```
 
-### Systemd (alternative, no Docker)
+Pulls latest code, rebuilds the image, and restarts the container.
 
-Install system dependencies first:
+### Monitoring
 
 ```bash
-sudo apt update
-sudo apt install -y python3 python3-venv libzbar0
+# Container status and health
+docker compose ps
+
+# Live logs
+docker compose logs -f
+
+# Last 100 log lines
+docker compose logs --tail=100
 ```
 
-Setup:
-
-```bash
-git clone <repo-url>
-cd GarminBot
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-nano .env  # fill in credentials
-```
-
-Create `/etc/systemd/system/garminbot.service`:
-
-```ini
-[Unit]
-Description=GarminBot
-After=network.target
-
-[Service]
-Type=simple
-User=your_user
-WorkingDirectory=/home/your_user/GarminBot
-EnvironmentFile=/home/your_user/GarminBot/.env
-ExecStart=/home/your_user/GarminBot/.venv/bin/python -m src.main
-Restart=always
-RestartSec=30
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable garminbot
-sudo systemctl start garminbot
-sudo journalctl -u garminbot -f
-```
+The bot includes a built-in health check: Docker automatically monitors it and restarts on failure. Log rotation is configured (30MB max) to prevent disk fill.
 
 ## Running Tests
 
@@ -262,9 +223,12 @@ GarminBot/
 ├── tests/                   # Pytest test suite
 ├── data/                    # Database and backups (gitignored)
 ├── logs/                    # Log files (gitignored)
+├── docker-compose.yml       # Container orchestration
 ├── Dockerfile
 ├── .dockerignore
 ├── .env.example
+├── deploy.sh                # Pull, rebuild, restart
+├── server-setup.sh          # Ubuntu VPS initial setup
 ├── requirements.txt
 └── README.md
 ```

@@ -15,3 +15,6 @@ htmlcov/
 .vscode/
 .idea/
 CLAUDE.md
+server-setup.sh
+deploy.sh
+docker-compose.yml
