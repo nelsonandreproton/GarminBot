@@ -762,6 +762,7 @@ class TelegramBot:
             },
             fallbacks=[CommandHandler("cancelar", self._cancel_food)],
             conversation_timeout=300,
+            per_message=True,
         )
         app.add_handler(conv)
 
