@@ -6,6 +6,7 @@ import csv
 import io as _io
 import logging
 import time
+import warnings
 from datetime import date, timedelta
 from typing import Any, Callable
 
@@ -21,7 +22,10 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+from telegram.warnings import PTBUserWarning
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+
+warnings.filterwarnings("ignore", message="per_message=False", category=PTBUserWarning)
 
 from ..config import Config
 from ..database.repository import Repository
@@ -762,7 +766,6 @@ class TelegramBot:
             },
             fallbacks=[CommandHandler("cancelar", self._cancel_food)],
             conversation_timeout=300,
-            per_message=True,
         )
         app.add_handler(conv)
 
