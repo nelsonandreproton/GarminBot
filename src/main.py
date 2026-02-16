@@ -262,7 +262,7 @@ def run() -> None:
                 repo.log_sync("error", str(exc))
                 logger.error("Backfill failed for %s: %s", day, exc)
 
-    tg_bot = TelegramBot(config, repo, garmin_sync_callback=sync_callback, garmin_backfill_callback=backfill_callback)
+    tg_bot = TelegramBot(config, repo, garmin_sync_callback=sync_callback, garmin_backfill_callback=backfill_callback, garmin_client=garmin)
 
     # Health checks (non-fatal for Garmin/Telegram)
     _run_health_checks(garmin, repo, config.telegram_bot_token, int(config.telegram_chat_id))

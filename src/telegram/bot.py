@@ -67,12 +67,13 @@ def _on_send_retry(retry_state) -> None:
 class TelegramBot:
     """Wraps python-telegram-bot for sending messages and handling commands."""
 
-    def __init__(self, config: Config, repository: Repository, garmin_sync_callback: Callable | None = None, garmin_backfill_callback: Callable | None = None) -> None:
+    def __init__(self, config: Config, repository: Repository, garmin_sync_callback: Callable | None = None, garmin_backfill_callback: Callable | None = None, garmin_client=None) -> None:
         self._config = config
         self._repo = repository
         self._chat_id = int(config.telegram_chat_id)
         self._garmin_sync = garmin_sync_callback
         self._garmin_backfill = garmin_backfill_callback
+        self._garmin_client = garmin_client
         self._app: Application | None = None
         # NutritionService (lazy init — only if GROQ_API_KEY is set)
         self._nutrition_service = None
@@ -592,8 +593,13 @@ class TelegramBot:
         from .formatters import format_remaining_macros
         goals = self._repo.get_goals()
         totals = self._repo.get_daily_nutrition(today)
-        garmin_row = self._repo.get_metrics_by_date(today)
-        remaining = format_remaining_macros(totals, goals, garmin_row)
+        garmin_data = None
+        if self._garmin_client:
+            try:
+                garmin_data = self._garmin_client.get_activity_data(today)
+            except Exception:
+                pass
+        remaining = format_remaining_macros(totals, goals, garmin_data)
         if remaining:
             msg += f"\n\n{remaining}"
 
@@ -703,8 +709,15 @@ class TelegramBot:
         today = date.today()
         entries = self._repo.get_food_entries(today)
         totals = self._repo.get_daily_nutrition(today)
-        garmin_row = self._repo.get_metrics_by_date(today - timedelta(days=1))
-        text = format_nutrition_day(entries, totals, garmin_row)
+        # Fetch today's calories in real-time from Garmin API
+        garmin_data = None
+        if self._garmin_client:
+            try:
+                activity = self._garmin_client.get_activity_data(today)
+                garmin_data = activity
+            except Exception as exc:
+                logger.warning("Failed to fetch today's Garmin data: %s", exc)
+        text = format_nutrition_day(entries, totals, garmin_data)
         await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
 
     async def _cmd_apagar(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
