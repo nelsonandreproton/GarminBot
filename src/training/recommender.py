@@ -21,11 +21,11 @@ REGRAS:
 - Adapta intensidade com base na qualidade do sono e sinais de recuperação
 - Considera a nutrição do dia anterior para disponibilidade energética
 
-EXEMPLOS POR PADRÃO (barbell, dumbbells, bands, bodyweight):
-- Squat: barbell back squat, barbell front squat, goblet squat, dumbbell Bulgarian split squat, lunges, band squat
-- Push: barbell bench press, barbell overhead press, dumbbell bench press, dumbbell floor press, push-ups, band press
-- Pull: barbell bent-over row, dumbbell rows, band pull-aparts, face pulls, band lat pulldown
-- Hinge: barbell deadlift, barbell Romanian deadlift, dumbbell RDL, dumbbell hip thrust, band good mornings
+EXEMPLOS POR PADRÃO (barbell, dumbbells, bodyweight):
+- Squat: goblet squat, dumbbell Bulgarian split squat, lunges, barbell zercher squat
+- Push: barbell overhead press, barbell floor press, dumbbell bench press, dumbbell floor press, push-ups
+- Pull: barbell bent-over row, dumbbell rows, dumbbell face pulls
+- Hinge: barbell deadlift, barbell Romanian deadlift, dumbbell RDL, dumbbell hip thrust
 - Carry: farmer's walk (dumbbells), suitcase carry, overhead carry
 
 RECUPERAÇÃO:
