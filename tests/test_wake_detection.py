@@ -165,10 +165,8 @@ from src.scheduler.jobs import make_wake_check_job, make_wake_fallback_job
 
 
 def _mock_config():
-    """Return a mock config with gym features disabled."""
+    """Return a mock config with optional features disabled."""
     config = MagicMock()
-    config.gym_equipment = None
-    config.gym_training_minutes = 45
     config.groq_api_key = None
     return config
 

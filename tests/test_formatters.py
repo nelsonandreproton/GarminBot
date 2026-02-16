@@ -16,7 +16,6 @@ from src.telegram.formatters import (
     format_nutrition_summary,
     format_remaining_macros,
     format_weekly_report,
-    format_workout_section,
 )
 
 
@@ -204,38 +203,6 @@ def test_format_daily_summary_with_nutrition():
     text = format_daily_summary(metrics)
     assert "Nutrição" in text
     assert "1800 kcal" in text
-
-
-# ------------------------------------------------------------------ #
-# Workout formatter tests                                              #
-# ------------------------------------------------------------------ #
-
-def test_format_workout_section():
-    text = format_workout_section("Goblet squat 3x12\nPush-ups 3x15")
-    assert "Treino Recomendado" in text
-    assert "Goblet squat" in text
-    assert "Push-ups" in text
-
-
-def test_format_daily_summary_with_workout():
-    metrics = {
-        "date": date(2026, 2, 13),
-        "sleep_hours": 7.5, "sleep_score": 80, "sleep_quality": "Bom",
-        "steps": 10000, "active_calories": 500, "resting_calories": 1600,
-    }
-    text = format_daily_summary(metrics, workout="Squat: Goblet squat 3x12")
-    assert "Treino Recomendado" in text
-    assert "Goblet squat" in text
-
-
-def test_format_daily_summary_without_workout():
-    metrics = {
-        "date": date(2026, 2, 13),
-        "sleep_hours": 7.5, "sleep_score": 80, "sleep_quality": "Bom",
-        "steps": 10000, "active_calories": 500, "resting_calories": 1600,
-    }
-    text = format_daily_summary(metrics, workout=None)
-    assert "Treino" not in text
 
 
 # ------------------------------------------------------------------ #

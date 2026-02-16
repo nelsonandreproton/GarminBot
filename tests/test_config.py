@@ -98,26 +98,3 @@ def test_load_config_health_port_invalid():
             load_config()
 
 
-def test_load_config_gym_equipment_from_env():
-    env = _base_env()
-    env["GYM_EQUIPMENT"] = "dumbbells, bench, bands"
-    env["GYM_TRAINING_MINUTES"] = "60"
-    with patch.dict(os.environ, env, clear=True):
-        config = load_config()
-    assert config.gym_equipment == "dumbbells, bench, bands"
-    assert config.gym_training_minutes == 60
-
-
-def test_load_config_gym_equipment_default_none():
-    with patch.dict(os.environ, _base_env(), clear=True):
-        config = load_config()
-    assert config.gym_equipment is None
-    assert config.gym_training_minutes == 45
-
-
-def test_load_config_gym_equipment_empty_string_is_none():
-    env = _base_env()
-    env["GYM_EQUIPMENT"] = ""
-    with patch.dict(os.environ, env, clear=True):
-        config = load_config()
-    assert config.gym_equipment is None
