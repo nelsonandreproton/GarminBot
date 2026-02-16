@@ -55,7 +55,6 @@ def format_daily_summary(
     weekly_stats: dict[str, Any] | None = None,
     alerts: list[str] | None = None,
     nutrition: dict[str, Any] | None = None,
-    workout: str | None = None,
     nutrition_recommendation: str | None = None,
 ) -> str:
     """Format a daily health summary message for Telegram.
@@ -67,7 +66,6 @@ def format_daily_summary(
         weekly_stats: Optional 7-day averages for comparison section.
         alerts: Optional list of alert strings to append.
         nutrition: Optional daily nutrition totals (overrides metrics["nutrition"]).
-        workout: Optional LLM-generated workout recommendation text.
 
     Returns:
         Markdown-formatted string ready to send via Telegram.
@@ -142,9 +140,6 @@ def format_daily_summary(
 
     if alerts:
         lines += ["", "💬 *Alertas:*"] + [f"• {a}" for a in alerts]
-
-    if workout:
-        lines += ["", format_workout_section(workout)]
 
     if nutrition_recommendation:
         lines += ["", format_nutrition_recommendation_section(nutrition_recommendation)]
@@ -317,7 +312,6 @@ def format_help_message() -> str:
         "/exportar N — Exportar dados em CSV\n"
         "/objetivo métrica valor — Ver ou definir objetivos (passos/sono/peso/calorias/proteina/gordura/hidratos)\n"
         "/peso [valor] — Ver ou registar peso\n"
-        "/treino — Gerar treino recomendado\n"
         "/status — Estado do bot\n"
         "/ajuda — Esta mensagem"
     )
@@ -408,18 +402,6 @@ def format_nutrition_summary(nutrition: dict[str, Any]) -> str:
             lines.append(f"• Excedente: +{abs(deficit)} kcal ({abs(pct)}%)")
 
     return "\n".join(lines)
-
-
-def format_workout_section(workout: str) -> str:
-    """Format a workout recommendation section for the daily report.
-
-    Args:
-        workout: LLM-generated workout text.
-
-    Returns:
-        Markdown-formatted section string (without leading newline).
-    """
-    return f"💪 *Treino Recomendado*\n\n{workout}"
 
 
 def format_nutrition_recommendation_section(recommendation: str) -> str:

@@ -290,23 +290,6 @@ def _send_daily_report(repo: Repository, bot: TelegramBot, config: Config) -> No
             "total_calories": row.total_calories,
         }
 
-    # Generate workout recommendation if gym equipment is configured
-    workout = None
-    if config.gym_equipment and config.groq_api_key:
-        from ..training.recommender import generate_workout
-        logger.info("Generating workout recommendation")
-        workout = generate_workout(
-            metrics=metrics,
-            nutrition=metrics.get("nutrition"),
-            equipment=config.gym_equipment,
-            training_minutes=config.gym_training_minutes,
-            api_key=config.groq_api_key,
-        )
-        if workout:
-            logger.info("Workout recommendation generated")
-        else:
-            logger.warning("Workout generation returned None")
-
     # Generate nutrition recommendation if macro goals are set
     nutrition_rec = None
     if config.groq_api_key and nutrition and nutrition.get("entry_count", 0) > 0:
@@ -329,7 +312,7 @@ def _send_daily_report(repo: Repository, bot: TelegramBot, config: Config) -> No
                 logger.warning("Nutrition recommendation returned None")
 
     try:
-        _run_async(bot.send_daily_summary(metrics, workout=workout, nutrition_recommendation=nutrition_rec))
+        _run_async(bot.send_daily_summary(metrics, nutrition_recommendation=nutrition_rec))
         repo.log_report_sent()
         logger.info("Daily report sent for %s", yesterday)
     except Exception as exc:
