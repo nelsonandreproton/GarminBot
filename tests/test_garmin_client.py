@@ -62,6 +62,7 @@ def test_get_activity_data_parses_response():
         "totalSteps": 12340,
         "activeKilocalories": 487,
         "bmrKilocalories": 1680,
+        "totalKilocalories": 2100,
     }
     client._client = mock_garmin
 
@@ -70,6 +71,7 @@ def test_get_activity_data_parses_response():
     assert result.steps == 12340
     assert result.active_calories == 487
     assert result.resting_calories == 1680
+    assert result.total_calories == 2100
 
 
 def test_get_yesterday_summary_uses_today_for_sleep():

@@ -43,6 +43,7 @@ class Repository:
                 "body_battery_high": "INTEGER",
                 "body_battery_low": "INTEGER",
                 "weight_kg": "REAL",
+                "total_calories": "INTEGER",
             }
             for col, col_type in new_cols.items():
                 if col not in existing_cols:

@@ -25,6 +25,7 @@ class DailyMetrics(Base):
     steps = Column(Integer, nullable=True)
     active_calories = Column(Integer, nullable=True)
     resting_calories = Column(Integer, nullable=True)
+    total_calories = Column(Integer, nullable=True)
     resting_heart_rate = Column(Integer, nullable=True)
     avg_stress = Column(Integer, nullable=True)
     body_battery_high = Column(Integer, nullable=True)

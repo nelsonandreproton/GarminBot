@@ -32,6 +32,7 @@ class ActivityData:
     steps: int | None
     active_calories: int | None
     resting_calories: int | None
+    total_calories: int | None = None
 
 
 @dataclass
@@ -164,11 +165,13 @@ class GarminClient:
         steps = raw.get("totalSteps")
         active_cals = raw.get("activeKilocalories")
         resting_cals = raw.get("bmrKilocalories")
+        total_cals = raw.get("totalKilocalories")
 
         return ActivityData(
             steps=int(steps) if steps is not None else None,
             active_calories=int(active_cals) if active_cals is not None else None,
             resting_calories=int(resting_cals) if resting_cals is not None else None,
+            total_calories=int(total_cals) if total_cals is not None else None,
         )
 
     def get_health_data(self, day: date) -> dict:
@@ -356,6 +359,7 @@ class GarminClient:
             "steps": summary.activity.steps,
             "active_calories": summary.activity.active_calories,
             "resting_calories": summary.activity.resting_calories,
+            "total_calories": summary.activity.total_calories,
             "resting_heart_rate": summary.resting_heart_rate,
             "avg_stress": summary.avg_stress,
             "body_battery_high": summary.body_battery_high,

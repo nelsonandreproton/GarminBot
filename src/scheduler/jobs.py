@@ -273,6 +273,7 @@ def _send_daily_report(repo: Repository, bot: TelegramBot, config: Config) -> No
         "steps": row.steps,
         "active_calories": row.active_calories,
         "resting_calories": row.resting_calories,
+        "total_calories": row.total_calories,
         "resting_heart_rate": row.resting_heart_rate,
         "avg_stress": row.avg_stress,
         "body_battery_high": row.body_battery_high,
@@ -286,6 +287,7 @@ def _send_daily_report(repo: Repository, bot: TelegramBot, config: Config) -> No
             **nutrition,
             "active_calories": row.active_calories,
             "resting_calories": row.resting_calories,
+            "total_calories": row.total_calories,
         }
 
     # Generate workout recommendation if gym equipment is configured

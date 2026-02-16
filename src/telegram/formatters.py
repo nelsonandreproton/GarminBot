@@ -137,6 +137,7 @@ def format_daily_summary(
             **nutrition,
             "active_calories": metrics.get("active_calories"),
             "resting_calories": metrics.get("resting_calories"),
+            "total_calories": metrics.get("total_calories"),
         })]
 
     if alerts:
@@ -346,10 +347,13 @@ def calculate_deficit(
     active_cal: int | None,
     resting_cal: int | None,
     eaten_cal: float | None,
+    total_cal: int | None = None,
 ) -> tuple[int | None, float | None]:
     """Calculate caloric deficit.
 
-    deficit = (active_calories + resting_calories) - calories_eaten
+    Uses total_calories from Garmin when available (matches what the
+    Garmin app displays).  Falls back to active + resting for old data.
+
     Positive = deficit (ate less than burned).
     Negative = surplus (ate more than burned).
 
@@ -358,7 +362,10 @@ def calculate_deficit(
     """
     if eaten_cal is None or eaten_cal == 0:
         return None, None
-    total_burned = (active_cal or 0) + (resting_cal or 0)
+    if total_cal is not None and total_cal > 0:
+        total_burned = total_cal
+    else:
+        total_burned = (active_cal or 0) + (resting_cal or 0)
     if total_burned == 0:
         return None, None
     deficit = total_burned - int(eaten_cal)
@@ -392,6 +399,7 @@ def format_nutrition_summary(nutrition: dict[str, Any]) -> str:
         nutrition.get("active_calories"),
         nutrition.get("resting_calories"),
         cal if cal > 0 else None,
+        nutrition.get("total_calories"),
     )
     if deficit is not None and pct is not None:
         if deficit >= 0:
@@ -589,9 +597,10 @@ def format_nutrition_day(entries: list[Any], nutrition_totals: dict[str, Any],
     if garmin_metrics:
         active = garmin_metrics.active_calories
         resting = garmin_metrics.resting_calories
-        deficit, pct = calculate_deficit(active, resting, cal if cal > 0 else None)
+        total = getattr(garmin_metrics, "total_calories", None)
+        deficit, pct = calculate_deficit(active, resting, cal if cal > 0 else None, total)
         if deficit is not None and pct is not None:
-            total_burned = (active or 0) + (resting or 0)
+            total_burned = total if total and total > 0 else (active or 0) + (resting or 0)
             lines += [
                 "",
                 "⚖️ *Balanço calórico:*",
@@ -679,13 +688,20 @@ def format_remaining_macros(
     # Add Garmin deficit info if calorie data available
     if garmin_metrics is not None and cal_goal is not None:
         if isinstance(garmin_metrics, dict):
+            total = garmin_metrics.get("total_calories")
             active = garmin_metrics.get("active_calories")
             resting = garmin_metrics.get("resting_calories")
         else:
+            total = getattr(garmin_metrics, "total_calories", None)
             active = getattr(garmin_metrics, "active_calories", None)
             resting = getattr(garmin_metrics, "resting_calories", None)
-        if active is not None and resting is not None:
+        if total is not None and total > 0:
+            total_burned = total
+        elif active is not None and resting is not None:
             total_burned = active + resting
+        else:
+            total_burned = None
+        if total_burned is not None:
             balance = int(eaten_cal) - total_burned
             if balance > 0:
                 line += f"\n📊 Excedente vs Garmin: +{balance} kcal"

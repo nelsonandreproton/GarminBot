@@ -144,6 +144,24 @@ def test_calculate_deficit_no_food_data():
     assert pct is None
 
 
+def test_calculate_deficit_prefers_total_calories():
+    """When total_cal is provided, it should be used instead of active+resting."""
+    deficit, pct = calculate_deficit(
+        active_cal=500, resting_cal=1600, eaten_cal=1500.0, total_cal=1668,
+    )
+    # total_cal=1668 used instead of 500+1600=2100
+    assert deficit == 168
+    assert pct == pytest.approx(10.1, abs=0.2)
+
+
+def test_calculate_deficit_falls_back_without_total():
+    """Without total_cal, falls back to active+resting."""
+    deficit, pct = calculate_deficit(
+        active_cal=500, resting_cal=1600, eaten_cal=1850.0, total_cal=None,
+    )
+    assert deficit == 250  # (500+1600) - 1850
+
+
 def test_format_nutrition_summary_with_deficit():
     nutrition = {
         "calories": 1850.0, "protein_g": 120.0, "fat_g": 65.0,
@@ -274,7 +292,7 @@ def test_format_remaining_macros_partial_goals():
 def test_format_remaining_macros_with_garmin_deficit():
     totals = {"calories": 1200.0, "protein_g": 80.0}
     goals = {"calories": 1750.0}
-    garmin = {"active_calories": 500, "resting_calories": 1600}
+    garmin = {"total_calories": 2100, "active_calories": 500, "resting_calories": 1600}
     result = format_remaining_macros(totals, goals, garmin)
     assert "Défice vs Garmin" in result
     assert "-900" in result  # 1200 - 2100 = -900
@@ -283,10 +301,20 @@ def test_format_remaining_macros_with_garmin_deficit():
 def test_format_remaining_macros_with_garmin_surplus():
     totals = {"calories": 2500.0, "protein_g": 80.0}
     goals = {"calories": 1750.0}
-    garmin = {"active_calories": 500, "resting_calories": 1600}
+    garmin = {"total_calories": 2100, "active_calories": 500, "resting_calories": 1600}
     result = format_remaining_macros(totals, goals, garmin)
     assert "Excedente vs Garmin" in result
     assert "+400" in result  # 2500 - 2100 = +400
+
+
+def test_format_remaining_macros_garmin_fallback_no_total():
+    """Without total_calories, falls back to active+resting."""
+    totals = {"calories": 1200.0, "protein_g": 80.0}
+    goals = {"calories": 1750.0}
+    garmin = {"active_calories": 500, "resting_calories": 1600}
+    result = format_remaining_macros(totals, goals, garmin)
+    assert "Défice vs Garmin" in result
+    assert "-900" in result  # 1200 - 2100 = -900
 
 
 # ------------------------------------------------------------------ #
