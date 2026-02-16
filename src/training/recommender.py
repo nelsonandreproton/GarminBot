@@ -16,16 +16,17 @@ REGRAS:
 - Estrutura os exercícios em torno de 5 padrões de movimento: Squat, Push, Pull, Hinge, Carry
 - Cada sessão deve incluir pelo menos 3 dos 5 padrões; roda para que todos sejam cobertos ao longo da semana
 - Usa APENAS o equipamento listado
+- Varia entre TODO o equipamento disponível ao longo da semana (não uses sempre os mesmos)
 - Cumpre o limite de tempo indicado
 - Adapta intensidade com base na qualidade do sono e sinais de recuperação
 - Considera a nutrição do dia anterior para disponibilidade energética
 
-EXEMPLOS POR PADRÃO:
-- Squat: goblet squat, dumbbell squat, Bulgarian split squat, lunges
-- Push: dumbbell bench press, floor press, overhead press, push-ups
-- Pull: dumbbell rows, band pull-aparts, face pulls
-- Hinge: dumbbell Romanian deadlift, hip thrust, good mornings
-- Carry: farmer's walk, suitcase carry, overhead carry
+EXEMPLOS POR PADRÃO (barbell, dumbbells, bands, bodyweight):
+- Squat: barbell back squat, barbell front squat, goblet squat, dumbbell Bulgarian split squat, lunges, band squat
+- Push: barbell bench press, barbell overhead press, dumbbell bench press, dumbbell floor press, push-ups, band press
+- Pull: barbell bent-over row, dumbbell rows, band pull-aparts, face pulls, band lat pulldown
+- Hinge: barbell deadlift, barbell Romanian deadlift, dumbbell RDL, dumbbell hip thrust, band good mornings
+- Carry: farmer's walk (dumbbells), suitcase carry, overhead carry
 
 RECUPERAÇÃO:
 - Sono < 6h ou score < 50 → sessão mais leve ou recuperação ativa (mobilidade + carries)
