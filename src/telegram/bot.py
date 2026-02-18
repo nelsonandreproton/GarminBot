@@ -221,14 +221,42 @@ class TelegramBot:
         await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
 
     async def _cmd_semana(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """/semana — last 7 days stats."""
+        """/semana — weekly report for the previous Mon–Sun week."""
         if not self._auth_check(update) or _is_rate_limited(update.effective_chat.id):
             return
-        stats = self._repo.get_weekly_stats(date.today() - timedelta(days=1))
+
+        # Calculate the most recent completed Mon–Sun week.
+        # weekday(): Mon=0 … Sun=6
+        today = date.today()
+        days_since_monday = today.weekday()  # 0 on Monday, 6 on Sunday
+        last_sunday = today - timedelta(days=days_since_monday + 1)
+        last_monday = last_sunday - timedelta(days=6)
+
+        stats = self._repo.get_weekly_stats(last_sunday)
         if not stats:
-            await update.message.reply_text("Sem dados suficientes para a semana.")
+            await update.message.reply_text(
+                f"Sem dados suficientes para a semana de {last_monday} a {last_sunday}."
+            )
             return
-        await update.message.reply_text(format_weekly_report(stats), parse_mode=ParseMode.MARKDOWN)
+
+        weight_stats = self._repo.get_weekly_weight_stats(last_sunday)
+        await self.send_weekly_report(stats, weight_stats=weight_stats or None)
+
+        # Chart
+        from ..utils.charts import generate_weekly_chart
+        from ..utils.insights import generate_insights
+        rows = self._repo.get_metrics_range(last_monday, last_sunday)
+        if rows:
+            goals = self._repo.get_goals()
+            chart_bytes = generate_weekly_chart(rows, goals=goals)
+            if chart_bytes:
+                await self.send_image(chart_bytes, caption="📊 Evolução semanal")
+
+            all_rows = self._repo.get_metrics_range(last_sunday - timedelta(days=13), last_sunday)
+            insights = generate_insights(all_rows, goals=goals)
+            if insights:
+                insight_text = "💡 *Insights:*\n" + "\n".join(f"• {i}" for i in insights)
+                await self._send(insight_text)
 
     async def _cmd_mes(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """/mes — last 30 days stats + chart."""

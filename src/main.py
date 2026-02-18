@@ -1,4 +1,4 @@
-"""Entry point: initialise all components, run health checks, start scheduler and bot."""
+"""Entry point: initialise all components, run health checks and bot."""
 
 from __future__ import annotations
 
@@ -8,47 +8,18 @@ import signal
 import sys
 from datetime import date, timedelta
 
-from apscheduler.events import EVENT_JOB_ERROR, JobExecutionEvent
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.cron import CronTrigger
-from pytz import timezone as pytz_timezone
-
 from .config import ConfigError, load_config
 from .database.repository import Repository
 from .garmin.client import GarminClient
-from .scheduler.jobs import (
-    make_report_callback,
-    make_sync_job,
-    make_sync_retry_job,
-    make_wake_check_job,
-    make_wake_fallback_job,
-    make_weekly_report_job,
-)
+from .scheduler.jobs import make_report_callback, make_sync_job
 from .telegram.bot import TelegramBot
 from .utils.logger import setup_logging
 
 logger = logging.getLogger(__name__)
 
-_WEEKDAY_MAP = {
-    "monday": "mon", "tuesday": "tue", "wednesday": "wed",
-    "thursday": "thu", "friday": "fri", "saturday": "sat", "sunday": "sun",
-}
-
-
-def _job_error_listener(event: JobExecutionEvent) -> None:
-    logger.error(
-        "Scheduler job '%s' raised an exception: %s",
-        event.job_id,
-        event.exception,
-        exc_info=(type(event.exception), event.exception, event.exception.__traceback__),
-    )
-
 
 def _run_health_checks(garmin: GarminClient, repo: Repository, bot_token: str, chat_id: int) -> None:
     """Verify connectivity to Garmin, Telegram, and the database on startup."""
-    import sqlite3
-    from pathlib import Path
-
     # Database
     try:
         count = repo.count_stored_days()
@@ -97,124 +68,6 @@ def _run_startup_backfill(garmin: GarminClient, repo: Repository) -> None:
             logger.warning("Startup backfill: failed for %s: %s", day, exc)
 
 
-def _build_scheduler(config, repo: Repository, garmin: GarminClient, tg_bot: TelegramBot) -> BackgroundScheduler:
-    tz = pytz_timezone(config.timezone)
-    scheduler = BackgroundScheduler(timezone=tz)
-    scheduler.add_listener(_job_error_listener, EVENT_JOB_ERROR)
-
-    weekly_job = make_weekly_report_job(repo, tg_bot, config.database_path)
-
-    if config.wake_detection:
-        # Wake detection mode: poll Garmin for sleep data to detect wake-up,
-        # then sync + send report. No fixed sync/report times.
-        _build_wake_detection_jobs(scheduler, config, repo, garmin, tg_bot, tz)
-    else:
-        # Fixed-time mode: sync and report at configured times (original behaviour)
-        _build_fixed_time_jobs(scheduler, config, repo, garmin, tg_bot, tz)
-
-    weekly_day = _WEEKDAY_MAP.get(config.weekly_report_day.lower(), "sun")
-    scheduler.add_job(
-        weekly_job,
-        CronTrigger(day_of_week=weekly_day, hour=config.weekly_hour, minute=config.weekly_minute, timezone=tz),
-        id="weekly_report",
-        name="Weekly Report",
-        max_instances=1,
-        coalesce=True,
-        misfire_grace_time=7200,
-    )
-
-    return scheduler
-
-
-def _build_fixed_time_jobs(
-    scheduler: BackgroundScheduler,
-    config,
-    repo: Repository,
-    garmin: GarminClient,
-    tg_bot: TelegramBot,
-    tz,
-) -> None:
-    """Add fixed-time sync and retry jobs. Report is sent on-demand via /sync."""
-    sync_job = make_sync_job(garmin, repo)
-
-    scheduler.add_job(
-        sync_job,
-        CronTrigger(hour=config.sync_hour, minute=config.sync_minute, timezone=tz),
-        id="daily_sync",
-        name="Daily Garmin Sync",
-        max_instances=1,
-        coalesce=True,
-        misfire_grace_time=3600,
-    )
-
-    retry_job = make_sync_retry_job(garmin, repo)
-    retry_total_minutes = config.sync_hour * 60 + config.sync_minute + config.sync_retry_delay_minutes
-    retry_hour = (retry_total_minutes // 60) % 24
-    retry_minute = retry_total_minutes % 60
-    scheduler.add_job(
-        retry_job,
-        CronTrigger(hour=retry_hour, minute=retry_minute, timezone=tz),
-        id="daily_sync_retry",
-        name="Daily Sync Retry",
-        max_instances=1,
-        coalesce=True,
-        misfire_grace_time=1800,
-    )
-
-
-def _build_wake_detection_jobs(
-    scheduler: BackgroundScheduler,
-    config,
-    repo: Repository,
-    garmin: GarminClient,
-    tg_bot: TelegramBot,
-    tz,
-) -> None:
-    """Add wake detection polling job and end-of-window fallback.
-
-    Instead of syncing and reporting at fixed times, poll Garmin every N minutes
-    for completed sleep data. When found, it means the user woke up and the
-    device synced — trigger the full sync + daily report at that moment.
-
-    A fallback job at WAKE_CHECK_END ensures the report is still sent even if
-    the device never synced (e.g. watch not worn).
-    """
-    wake_job = make_wake_check_job(garmin, repo)
-    fallback_job = make_wake_fallback_job(garmin, repo)
-
-    # Build hour range for the cron expression: e.g. "5-11" for 05:00-11:59
-    # The fallback job at WAKE_CHECK_END covers the final hour boundary.
-    start_h = config.wake_start_hour
-    end_h = config.wake_end_hour - 1 if config.wake_end_minute == 0 else config.wake_end_hour
-
-    # Ensure valid range (start might equal end if window is ~1 hour)
-    if end_h < start_h:
-        end_h = start_h
-
-    interval = config.wake_check_interval_minutes
-    minute_expr = f"*/{interval}" if interval < 60 else "0"
-
-    scheduler.add_job(
-        wake_job,
-        CronTrigger(hour=f"{start_h}-{end_h}", minute=minute_expr, timezone=tz),
-        id="wake_check",
-        name="Wake Detection Check",
-        max_instances=1,
-        coalesce=True,
-        misfire_grace_time=600,
-    )
-
-    scheduler.add_job(
-        fallback_job,
-        CronTrigger(hour=config.wake_end_hour, minute=config.wake_end_minute, timezone=tz),
-        id="wake_fallback",
-        name="Wake Detection Fallback",
-        max_instances=1,
-        coalesce=True,
-        misfire_grace_time=3600,
-    )
-
-
 def run() -> None:
     """Main application entry point."""
     # Minimal early logging before config is loaded
@@ -261,27 +114,6 @@ def run() -> None:
     # Startup backfill: fill any gaps in the last 7 days
     _run_startup_backfill(garmin, repo)
 
-    # Build and start scheduler
-    scheduler = _build_scheduler(config, repo, garmin, tg_bot)
-    scheduler.start()
-    if config.wake_detection:
-        logger.info(
-            "Scheduler started (wake detection mode). Checking every %dmin from %s to %s, "
-            "Weekly on %s at %02d:%02d (%s)",
-            config.wake_check_interval_minutes,
-            config.wake_check_start, config.wake_check_end,
-            config.weekly_report_day, config.weekly_hour, config.weekly_minute,
-            config.timezone,
-        )
-    else:
-        logger.info(
-            "Scheduler started (fixed-time mode). Sync at %02d:%02d, "
-            "Weekly on %s at %02d:%02d (%s)",
-            config.sync_hour, config.sync_minute,
-            config.weekly_report_day, config.weekly_hour, config.weekly_minute,
-            config.timezone,
-        )
-
     # Start health check server if configured
     if config.health_port:
         from .utils.healthcheck import start_health_server
@@ -301,7 +133,6 @@ def run() -> None:
                 "status": "ok" if ok else "degraded",
                 "ok": ok,
                 "last_sync": str(last_sync_dt) if last_sync_dt else None,
-                "scheduler_running": scheduler.running,
                 "uptime_seconds": int(_time.monotonic() - _startup_time),
             }
 
@@ -309,7 +140,6 @@ def run() -> None:
 
     # Build Telegram application
     app = tg_bot.build_application()
-    app.bot_data["scheduler"] = scheduler
 
     # Register commands with BotFather
     asyncio.get_event_loop().run_until_complete(tg_bot.register_commands())
@@ -317,8 +147,6 @@ def run() -> None:
     # Graceful shutdown handler
     def _shutdown(signum, frame):
         logger.info("Shutdown signal received, stopping...")
-        scheduler.shutdown(wait=True)
-        logger.info("Scheduler stopped cleanly")
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, _shutdown)
@@ -332,7 +160,6 @@ def run() -> None:
     except (KeyboardInterrupt, SystemExit):
         pass
     finally:
-        scheduler.shutdown(wait=True)
         logger.info("GarminBot stopped")
 
 
