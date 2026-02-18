@@ -246,6 +246,44 @@ class TelegramBot:
             if chart:
                 await self.send_image(chart, caption="📈 Tendência mensal")
 
+    async def _send_yesterday_report(self) -> None:
+        """Build and send yesterday's daily report. Used by /sync (async context)."""
+        yesterday = date.today() - timedelta(days=1)
+        row = self._repo.get_metrics_by_date(yesterday)
+        if row is None:
+            await self.send_error(
+                f"relatório de {yesterday}",
+                RuntimeError("Sem dados para ontem — o sync falhou ou ainda não correu."),
+            )
+            self._repo.log_report_sent()
+            return
+        metrics = {
+            "date": row.date,
+            "sleep_hours": row.sleep_hours,
+            "sleep_score": row.sleep_score,
+            "sleep_quality": row.sleep_quality,
+            "steps": row.steps,
+            "active_calories": row.active_calories,
+            "resting_calories": row.resting_calories,
+            "total_calories": row.total_calories,
+            "resting_heart_rate": row.resting_heart_rate,
+            "avg_stress": row.avg_stress,
+            "body_battery_high": row.body_battery_high,
+            "body_battery_low": row.body_battery_low,
+            "weight_kg": row.weight_kg,
+        }
+        nutrition = self._repo.get_daily_nutrition(yesterday)
+        if nutrition.get("entry_count", 0) > 0:
+            metrics["nutrition"] = {
+                **nutrition,
+                "active_calories": row.active_calories,
+                "resting_calories": row.resting_calories,
+                "total_calories": row.total_calories,
+            }
+        await self.send_daily_summary(metrics)
+        self._repo.log_report_sent()
+        logger.info("Daily report sent for %s (via /sync)", yesterday)
+
     async def _cmd_sync(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """/sync — sync yesterday's Garmin data and send the daily summary."""
         if not self._auth_check(update) or _is_rate_limited(update.effective_chat.id):
@@ -260,15 +298,8 @@ class TelegramBot:
             logger.error("Manual sync failed: %s", exc)
             await update.message.reply_text(format_error_message("sync manual", exc), parse_mode=ParseMode.MARKDOWN)
             return
-        # Send the daily report for yesterday
-        if self._garmin_report is not None:
-            try:
-                self._garmin_report()
-            except Exception as exc:
-                logger.error("Failed to send report after sync: %s", exc)
-                await update.message.reply_text(format_error_message("relatório diário", exc), parse_mode=ParseMode.MARKDOWN)
-        else:
-            await update.message.reply_text("✅ Sync concluído.")
+        # Send yesterday's report directly (already in async context — no _run_async needed)
+        await self._send_yesterday_report()
 
     async def _cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """/status — bot status and last sync info."""
