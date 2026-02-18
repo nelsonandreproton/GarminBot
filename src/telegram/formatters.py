@@ -840,9 +840,10 @@ def format_remaining_macros(
             total_burned = None
         if total_burned is not None:
             balance = int(eaten_cal) - total_burned
+            pct = round(abs(balance) / total_burned * 100, 1) if total_burned else 0.0
             if balance > 0:
-                line += f"\n📊 Excedente vs Garmin: +{balance} kcal"
+                line += f"\n📊 Excedente vs Garmin: +{balance} kcal ({pct}%)"
             else:
-                line += f"\n📊 Défice vs Garmin: {balance} kcal"
+                line += f"\n📊 Défice vs Garmin: {balance} kcal ({pct}%)"
 
     return line
