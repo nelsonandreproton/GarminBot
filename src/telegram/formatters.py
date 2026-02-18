@@ -316,7 +316,7 @@ def format_help_message() -> str:
         "/comi texto — Registar refeição (ou nome de um preset)\n"
         "/nutricao — Resumo nutricional do dia\n"
         "/apagar — Apagar último alimento registado\n"
-        "/preset create nome itens — Guardar preset de refeição\n"
+        "/preset create nome — Criar preset de refeição (interativo)\n"
         "/preset list — Listar presets guardados\n"
         "/preset delete nome — Apagar preset\n"
         "/ajuda — Esta mensagem"
@@ -683,7 +683,7 @@ def format_meal_presets_list(presets: list[Any]) -> str:
         Markdown-formatted string.
     """
     if not presets:
-        return "📋 *Presets de refeição*\n\nSem presets guardados.\nUsa `/preset create <nome> <itens>` para criar um."
+        return "📋 *Presets de refeição*\n\nSem presets guardados.\nUsa `/preset create <nome>` para criar um."
 
     lines = ["📋 *Presets de refeição:*", ""]
     for preset in presets:
@@ -695,6 +695,97 @@ def format_meal_presets_list(presets: list[Any]) -> str:
     lines += ["", "_Usa /comi <nome> para registar um preset._"]
     lines.append("_Usa /preset delete <nome> para apagar._")
     return "\n".join(lines)
+
+
+# Accepted suffixes for each macro field (case-insensitive)
+_MACRO_PATTERNS = {
+    "calories": ["cal", "kcal"],
+    "protein_g": ["p", "prot", "proteina", "proteína"],
+    "fat_g": ["g", "gord", "gordura"],
+    "carbs_g": ["hc", "hidratos", "carbs", "c"],
+    "fiber_g": ["f", "fibra", "fib"],
+}
+
+
+def parse_preset_item_line(line: str) -> dict | None:
+    """Parse a single preset item line entered by the user.
+
+    Accepted format:
+        <qty> <name>: <value><suffix> <value><suffix> ...
+
+    Suffixes (case-insensitive):
+        calories  — cal, kcal
+        protein_g — p, prot, proteína
+        fat_g     — g, gord, gordura
+        carbs_g   — hc, hidratos, carbs, c
+        fiber_g   — f, fibra, fib
+
+    Examples:
+        "1 Pudim Proteína: 148cal 19p 3g 10hc 1f"
+        "2 Babybell Light: 100kcal 12p 6g 0hc 0f"
+        "1 Banana: 90cal 1p 0g 20hc 2f"
+
+    Returns:
+        Dict with keys name, quantity, unit, calories, protein_g, fat_g,
+        carbs_g, fiber_g — or None if the line cannot be parsed.
+    """
+    import re
+    line = line.strip()
+    if not line:
+        return None
+
+    # Split on first colon: "<qty> <name>" : "<macros>"
+    if ":" not in line:
+        return None
+    left, right = line.split(":", 1)
+
+    # Parse qty + name from the left part
+    left = left.strip()
+    qty_match = re.match(r"^(\d+(?:[.,]\d+)?)\s+(.+)$", left)
+    if qty_match:
+        qty = float(qty_match.group(1).replace(",", "."))
+        name = qty_match.group(2).strip()
+    else:
+        qty = 1.0
+        name = left
+
+    if not name:
+        return None
+
+    # Build a flat list of all suffix→field mappings (longest first to avoid
+    # "kcal" being matched as "c" from carbs_g)
+    suffix_map: list[tuple[str, str]] = []
+    for field, suffixes in _MACRO_PATTERNS.items():
+        for s in suffixes:
+            suffix_map.append((s, field))
+    suffix_map.sort(key=lambda x: len(x[0]), reverse=True)
+
+    # Extract macro values from the right part
+    macros: dict[str, float] = {}
+    right = right.strip()
+    # Find all "<number><suffix>" tokens (number may have decimal)
+    tokens = re.findall(r"(\d+(?:[.,]\d+)?)\s*([a-záàâãéêíóôõúüçñ]+)", right, re.IGNORECASE)
+    for num_str, suffix_raw in tokens:
+        suffix = suffix_raw.lower()
+        for pattern, field in suffix_map:
+            if suffix == pattern:
+                macros[field] = float(num_str.replace(",", "."))
+                break
+
+    # Require at least calories to be present
+    if "calories" not in macros:
+        return None
+
+    return {
+        "name": name,
+        "quantity": qty,
+        "unit": "un",
+        "calories": macros.get("calories"),
+        "protein_g": macros.get("protein_g"),
+        "fat_g": macros.get("fat_g"),
+        "carbs_g": macros.get("carbs_g"),
+        "fiber_g": macros.get("fiber_g"),
+    }
 
 
 def format_remaining_macros(

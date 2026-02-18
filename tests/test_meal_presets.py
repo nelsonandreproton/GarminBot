@@ -164,7 +164,7 @@ def test_delete_meal_preset_cascades_items(repo):
 # Formatters                                                           #
 # ------------------------------------------------------------------ #
 
-from src.telegram.formatters import format_meal_preset_confirmation, format_meal_presets_list
+from src.telegram.formatters import format_meal_preset_confirmation, format_meal_presets_list, parse_preset_item_line
 
 
 class _FakeItem:
@@ -219,3 +219,77 @@ def test_format_meal_presets_list_shows_name_and_cals():
     assert "Lanche" in text
     assert "248 kcal" in text
     assert "2 item" in text
+
+
+# ------------------------------------------------------------------ #
+# parse_preset_item_line                                               #
+# ------------------------------------------------------------------ #
+
+def test_parse_basic_line():
+    result = parse_preset_item_line("1 Pudim Continente +Proteína: 148cal 19p 3g 10hc 1f")
+    assert result is not None
+    assert result["name"] == "Pudim Continente +Proteína"
+    assert result["quantity"] == 1.0
+    assert result["unit"] == "un"
+    assert result["calories"] == 148.0
+    assert result["protein_g"] == 19.0
+    assert result["fat_g"] == 3.0
+    assert result["carbs_g"] == 10.0
+    assert result["fiber_g"] == 1.0
+
+
+def test_parse_qty_2():
+    result = parse_preset_item_line("2 Mini Babybell Light: 100cal 12p 6g 0hc 0f")
+    assert result is not None
+    assert result["quantity"] == 2.0
+    assert result["calories"] == 100.0
+    assert result["protein_g"] == 12.0
+
+
+def test_parse_kcal_suffix():
+    result = parse_preset_item_line("1 Banana: 90kcal 1p 0g 20hc 2f")
+    assert result is not None
+    assert result["calories"] == 90.0
+    assert result["fiber_g"] == 2.0
+
+
+def test_parse_missing_calories_returns_none():
+    result = parse_preset_item_line("1 Banana: 1p 0g 20hc 2f")
+    assert result is None
+
+
+def test_parse_no_colon_returns_none():
+    result = parse_preset_item_line("1 Banana 90cal 1p 0g 20hc 2f")
+    assert result is None
+
+
+def test_parse_empty_returns_none():
+    assert parse_preset_item_line("") is None
+    assert parse_preset_item_line("  ") is None
+
+
+def test_parse_no_qty_defaults_to_1():
+    result = parse_preset_item_line("Ovo: 70cal 6p 5g 0hc 0f")
+    assert result is not None
+    assert result["quantity"] == 1.0
+    assert result["name"] == "Ovo"
+
+
+def test_parse_decimal_qty():
+    result = parse_preset_item_line("0.5 Abacate: 120cal 1p 11g 3hc 4f")
+    assert result is not None
+    assert result["quantity"] == 0.5
+
+
+def test_parse_missing_optional_macros():
+    """fiber_g and fat_g are optional — only calories required."""
+    result = parse_preset_item_line("1 Pão: 100cal 3p 1g 20hc")
+    assert result is not None
+    assert result["fiber_g"] is None
+    assert result["calories"] == 100.0
+
+
+def test_parse_spaces_around_colon():
+    result = parse_preset_item_line("1 Iogurte : 80cal 6p 1g 10hc 0f")
+    assert result is not None
+    assert result["calories"] == 80.0

@@ -40,12 +40,13 @@ from .formatters import (
     format_status,
     format_weekly_report,
     format_weight_status,
+    parse_preset_item_line,
 )
 
 # ConversationHandler states
 _AWAITING_CONFIRMATION = 0
 _AWAITING_BARCODE_QUANTITY = 1
-_AWAITING_PRESET_SAVE = 2
+_AWAITING_PRESET_ITEMS = 2
 
 logger = logging.getLogger(__name__)
 
@@ -731,10 +732,12 @@ class TelegramBot:
         return ConversationHandler.END
 
     async def _cancel_food(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Callback or /cancelar: user cancelled food entry."""
+        """Callback or /cancelar: user cancelled food entry or preset creation."""
         context.user_data.pop("pending_food", None)
         context.user_data.pop("pending_barcode_item", None)
         context.user_data.pop("pending_preset", None)
+        context.user_data.pop("pending_preset_name", None)
+        context.user_data.pop("pending_preset_items", None)
         if update.callback_query:
             await update.callback_query.answer()
             await update.callback_query.edit_message_text("❌ Registo cancelado.")
@@ -743,7 +746,7 @@ class TelegramBot:
         return ConversationHandler.END
 
     async def _cmd_preset(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """/preset <create|list|delete> — manage meal presets."""
+        """/preset <create|list|delete> [nome] — manage meal presets."""
         if not self._auth_check(update) or _is_rate_limited(update.effective_chat.id):
             return ConversationHandler.END
 
@@ -769,81 +772,105 @@ class TelegramBot:
             return ConversationHandler.END
 
         if subcommand == "create":
-            if len(args) < 3:
-                await update.message.reply_text(
-                    "Uso: /preset create <nome> <itens>\n\n"
-                    "Exemplo: /preset create Lanche 1 pudim proteína e 2 babybell light"
-                )
+            if len(args) < 2:
+                await update.message.reply_text("Uso: /preset create <nome>\n\nExemplo: /preset create Lanche")
                 return ConversationHandler.END
-            if self._nutrition_service is None:
-                await update.message.reply_text(
-                    "⚠️ Funcionalidade de nutrição não configurada. Adiciona GROQ_API_KEY ao ficheiro .env."
-                )
-                return ConversationHandler.END
-            preset_name = args[1]
-            food_text = " ".join(args[2:])
-            await update.message.reply_text(f"⏳ A criar preset \"{preset_name}\"...")
-            try:
-                items = self._nutrition_service.process_text(food_text)
-            except Exception as exc:
-                logger.error("Nutrition process_text failed for preset: %s", exc, exc_info=True)
-                await update.message.reply_text("❌ Erro ao processar os itens. Tenta novamente.")
-                return ConversationHandler.END
-            if not items:
-                await update.message.reply_text("Não consegui identificar alimentos. Tenta ser mais específico.")
-                return ConversationHandler.END
-
-            # Store items + name, show confirmation before saving as preset
+            preset_name = " ".join(args[1:])
             context.user_data["pending_preset_name"] = preset_name
-            context.user_data["pending_preset_items"] = items
-            msg = format_food_confirmation(items)
-            msg = f"💾 *Guardar como preset \"{preset_name}\":*\n\n" + msg.replace("📝 *Registar refeição:*\n\n", "")
-            keyboard = InlineKeyboardMarkup([
-                [
-                    InlineKeyboardButton("💾 Guardar preset", callback_data="preset_save"),
-                    InlineKeyboardButton("❌ Cancelar", callback_data="food_cancel"),
-                ]
-            ])
-            await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
-            return _AWAITING_PRESET_SAVE
+            context.user_data["pending_preset_items"] = []
+
+            await update.message.reply_text(
+                f"💾 *A criar preset \"{preset_name}\"*\n\n"
+                "Envia cada item numa linha separada, no formato:\n"
+                "`<qtd> <nome>: <cal>cal <P>p <G>g <HC>hc <F>f`\n\n"
+                "Exemplos:\n"
+                "`1 Pudim Continente +Proteína: 148cal 19p 3g 10hc 1f`\n"
+                "`2 Mini Babybell Light: 100cal 12p 6g 0hc 0f`\n\n"
+                "Quando terminares, clica em *Concluído* ou envia /done.",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return _AWAITING_PRESET_ITEMS
 
         # Unknown subcommand
         await update.message.reply_text(
             "Comandos de preset:\n"
-            "• /preset create <nome> <itens> — criar preset\n"
+            "• /preset create <nome> — criar preset (interativo)\n"
             "• /preset list — listar presets\n"
             "• /preset delete <nome> — apagar preset"
         )
         return ConversationHandler.END
 
+    async def _handle_preset_item(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """MessageHandler: user is adding items to a preset interactively."""
+        text = (update.message.text or "").strip()
+        preset_name = context.user_data.get("pending_preset_name", "")
+        items: list[dict] = context.user_data.get("pending_preset_items", [])
+
+        parsed = parse_preset_item_line(text)
+        if parsed is None:
+            await update.message.reply_text(
+                "❌ Formato inválido. Usa:\n"
+                "`<qtd> <nome>: <cal>cal <P>p <G>g <HC>hc <F>f`\n\n"
+                "Exemplo: `1 Pudim Proteína: 148cal 19p 3g 10hc 1f`",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return _AWAITING_PRESET_ITEMS
+
+        items.append(parsed)
+        context.user_data["pending_preset_items"] = items
+
+        cal = int(parsed["calories"] or 0)
+        prot = int(parsed.get("protein_g") or 0)
+        fat = int(parsed.get("fat_g") or 0)
+        carbs = int(parsed.get("carbs_g") or 0)
+        fiber = int(parsed.get("fiber_g") or 0)
+        qty = parsed["quantity"]
+        qty_str = f"{int(qty)}" if qty == int(qty) else f"{qty}"
+
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ Concluído", callback_data="preset_save"),
+                InlineKeyboardButton("❌ Cancelar", callback_data="food_cancel"),
+            ]
+        ])
+        await update.message.reply_text(
+            f"✅ *{qty_str}× {parsed['name'].title()}* adicionado\n"
+            f"   {cal} kcal | P: {prot}g | G: {fat}g | HC: {carbs}g | F: {fiber}g\n\n"
+            f"_Total de itens: {len(items)}_\n\n"
+            "Envia mais um item ou clica *Concluído*.",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=keyboard,
+        )
+        return _AWAITING_PRESET_ITEMS
+
+    async def _cmd_preset_done(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """/done — finish adding items to a preset."""
+        return await self._finish_preset(update.message.reply_text, context)
+
     async def _save_preset(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """Callback: user confirmed saving items as a meal preset."""
+        """Callback: 'Concluído' button pressed — save preset."""
         query = update.callback_query
         await query.answer()
+        return await self._finish_preset(query.edit_message_text, context)
+
+    async def _finish_preset(self, reply_fn, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Shared logic: validate and save the preset being built."""
         preset_name = context.user_data.pop("pending_preset_name", None)
-        items = context.user_data.pop("pending_preset_items", None)
-        if not preset_name or not items:
-            await query.edit_message_text("❌ Sessão expirada. Tenta /preset create novamente.")
+        items: list[dict] = context.user_data.pop("pending_preset_items", [])
+
+        if not preset_name:
+            await reply_fn("❌ Sessão expirada. Tenta /preset create novamente.")
             return ConversationHandler.END
 
-        item_dicts = [
-            {
-                "name": item.name,
-                "quantity": item.quantity,
-                "unit": item.unit,
-                "calories": item.calories,
-                "protein_g": item.protein_g,
-                "fat_g": item.fat_g,
-                "carbs_g": item.carbs_g,
-                "fiber_g": item.fiber_g,
-            }
-            for item in items
-        ]
-        self._repo.save_meal_preset(preset_name, item_dicts)
-        total_cal = sum(item.calories or 0 for item in items)
+        if not items:
+            await reply_fn("❌ Não adicionaste nenhum item. Preset não guardado.")
+            return ConversationHandler.END
+
+        self._repo.save_meal_preset(preset_name, items)
+        total_cal = sum(i.get("calories") or 0 for i in items)
         item_count = len(items)
-        await query.edit_message_text(
-            f"✅ Preset \"{preset_name}\" guardado com {item_count} item(s) ({int(total_cal)} kcal).\n\n"
+        await reply_fn(
+            f"✅ Preset *\"{preset_name}\"* guardado com {item_count} item(s) ({int(total_cal)} kcal).\n\n"
             f"_Usa /comi {preset_name} para registar._",
             parse_mode=ParseMode.MARKDOWN,
         )
@@ -1008,13 +1035,15 @@ class TelegramBot:
                 _AWAITING_BARCODE_QUANTITY: [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_barcode_quantity),
                 ],
-                _AWAITING_PRESET_SAVE: [
+                _AWAITING_PRESET_ITEMS: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_preset_item),
+                    CommandHandler("done", self._cmd_preset_done),
                     CallbackQueryHandler(self._save_preset, pattern="^preset_save$"),
                     CallbackQueryHandler(self._cancel_food, pattern="^food_cancel$"),
                 ],
             },
             fallbacks=[CommandHandler("cancelar", self._cancel_food)],
-            conversation_timeout=300,
+            conversation_timeout=600,
         )
         app.add_handler(conv)
 
