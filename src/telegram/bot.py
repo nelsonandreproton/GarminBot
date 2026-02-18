@@ -33,6 +33,8 @@ from .formatters import (
     format_daily_summary,
     format_error_message,
     format_food_confirmation,
+    format_meal_preset_confirmation,
+    format_meal_presets_list,
     format_monthly_report,
     format_nutrition_day,
     format_status,
@@ -43,6 +45,7 @@ from .formatters import (
 # ConversationHandler states
 _AWAITING_CONFIRMATION = 0
 _AWAITING_BARCODE_QUANTITY = 1
+_AWAITING_PRESET_SAVE = 2
 
 logger = logging.getLogger(__name__)
 
@@ -579,18 +582,40 @@ class TelegramBot:
     # ------------------------------------------------------------------ #
 
     async def _cmd_comi(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """/comi <texto> — register food eaten."""
+        """/comi <texto|preset> — register food eaten, or load a named meal preset."""
         if not self._auth_check(update) or _is_rate_limited(update.effective_chat.id):
-            return ConversationHandler.END
-        if self._nutrition_service is None:
-            await update.message.reply_text(
-                "⚠️ Funcionalidade de nutrição não configurada. Adiciona GROQ_API_KEY ao ficheiro .env."
-            )
             return ConversationHandler.END
 
         text = " ".join(context.args or []).strip()
         if not text:
-            await update.message.reply_text("Uso: /comi 2 ovos e 1 torrada\n\nDescre o que comeste em texto livre.")
+            await update.message.reply_text(
+                "Uso: /comi 2 ovos e 1 torrada\n\nOu usa o nome de um preset guardado (ex: /comi Lanche).\n"
+                "Lista de presets: /preset list"
+            )
+            return ConversationHandler.END
+
+        # ---- Check if text matches a saved meal preset (case-insensitive) ----
+        preset = self._repo.get_meal_preset_by_name(text)
+        if preset is not None:
+            if not preset.items:
+                await update.message.reply_text(f"❌ O preset \"{preset.name}\" está vazio.")
+                return ConversationHandler.END
+            context.user_data["pending_preset"] = preset
+            msg = format_meal_preset_confirmation(preset.name, preset.items)
+            keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("✅ Confirmar", callback_data="preset_confirm"),
+                    InlineKeyboardButton("❌ Cancelar", callback_data="food_cancel"),
+                ]
+            ])
+            await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
+            return _AWAITING_CONFIRMATION
+
+        # ---- Fall through to AI text parsing ----
+        if self._nutrition_service is None:
+            await update.message.reply_text(
+                "⚠️ Funcionalidade de nutrição não configurada. Adiciona GROQ_API_KEY ao ficheiro .env."
+            )
             return ConversationHandler.END
 
         await update.message.reply_text("⏳ A processar...")
@@ -661,15 +686,167 @@ class TelegramBot:
         await query.edit_message_text(msg)
         return ConversationHandler.END
 
+    async def _confirm_preset(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Callback: user confirmed a meal preset — save items to food_entries."""
+        query = update.callback_query
+        await query.answer()
+        preset = context.user_data.pop("pending_preset", None)
+        if preset is None:
+            await query.edit_message_text("❌ Sessão expirada. Tenta /comi novamente.")
+            return ConversationHandler.END
+
+        today = date.today()
+        entries = [
+            {
+                "name": item.name,
+                "quantity": item.quantity,
+                "unit": item.unit,
+                "calories": item.calories,
+                "protein_g": item.protein_g,
+                "fat_g": item.fat_g,
+                "carbs_g": item.carbs_g,
+                "fiber_g": item.fiber_g,
+                "source": "meal_preset",
+            }
+            for item in preset.items
+        ]
+        self._repo.save_food_entries(today, entries)
+        total_cal = sum(item.calories or 0 for item in preset.items)
+
+        msg = f"✅ Preset \"{preset.name}\" registado! Total: {int(total_cal)} kcal"
+        from .formatters import format_remaining_macros
+        goals = self._repo.get_goals()
+        totals = self._repo.get_daily_nutrition(today)
+        garmin_data = None
+        if self._garmin_client:
+            try:
+                garmin_data = self._garmin_client.get_activity_data(today)
+            except Exception:
+                pass
+        remaining = format_remaining_macros(totals, goals, garmin_data)
+        if remaining:
+            msg += f"\n\n{remaining}"
+
+        await query.edit_message_text(msg)
+        return ConversationHandler.END
+
     async def _cancel_food(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         """Callback or /cancelar: user cancelled food entry."""
         context.user_data.pop("pending_food", None)
         context.user_data.pop("pending_barcode_item", None)
+        context.user_data.pop("pending_preset", None)
         if update.callback_query:
             await update.callback_query.answer()
             await update.callback_query.edit_message_text("❌ Registo cancelado.")
         else:
             await update.message.reply_text("❌ Registo cancelado.")
+        return ConversationHandler.END
+
+    async def _cmd_preset(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """/preset <create|list|delete> — manage meal presets."""
+        if not self._auth_check(update) or _is_rate_limited(update.effective_chat.id):
+            return ConversationHandler.END
+
+        args = context.args or []
+        subcommand = args[0].lower() if args else ""
+
+        if subcommand == "list":
+            presets = self._repo.list_meal_presets()
+            text = format_meal_presets_list(presets)
+            await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+            return ConversationHandler.END
+
+        if subcommand == "delete":
+            if len(args) < 2:
+                await update.message.reply_text("Uso: /preset delete <nome>")
+                return ConversationHandler.END
+            name = " ".join(args[1:])
+            deleted = self._repo.delete_meal_preset(name)
+            if deleted:
+                await update.message.reply_text(f"🗑 Preset \"{name}\" apagado.")
+            else:
+                await update.message.reply_text(f"❌ Preset \"{name}\" não encontrado.")
+            return ConversationHandler.END
+
+        if subcommand == "create":
+            if len(args) < 3:
+                await update.message.reply_text(
+                    "Uso: /preset create <nome> <itens>\n\n"
+                    "Exemplo: /preset create Lanche 1 pudim proteína e 2 babybell light"
+                )
+                return ConversationHandler.END
+            if self._nutrition_service is None:
+                await update.message.reply_text(
+                    "⚠️ Funcionalidade de nutrição não configurada. Adiciona GROQ_API_KEY ao ficheiro .env."
+                )
+                return ConversationHandler.END
+            preset_name = args[1]
+            food_text = " ".join(args[2:])
+            await update.message.reply_text(f"⏳ A criar preset \"{preset_name}\"...")
+            try:
+                items = self._nutrition_service.process_text(food_text)
+            except Exception as exc:
+                logger.error("Nutrition process_text failed for preset: %s", exc, exc_info=True)
+                await update.message.reply_text("❌ Erro ao processar os itens. Tenta novamente.")
+                return ConversationHandler.END
+            if not items:
+                await update.message.reply_text("Não consegui identificar alimentos. Tenta ser mais específico.")
+                return ConversationHandler.END
+
+            # Store items + name, show confirmation before saving as preset
+            context.user_data["pending_preset_name"] = preset_name
+            context.user_data["pending_preset_items"] = items
+            msg = format_food_confirmation(items)
+            msg = f"💾 *Guardar como preset \"{preset_name}\":*\n\n" + msg.replace("📝 *Registar refeição:*\n\n", "")
+            keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("💾 Guardar preset", callback_data="preset_save"),
+                    InlineKeyboardButton("❌ Cancelar", callback_data="food_cancel"),
+                ]
+            ])
+            await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
+            return _AWAITING_PRESET_SAVE
+
+        # Unknown subcommand
+        await update.message.reply_text(
+            "Comandos de preset:\n"
+            "• /preset create <nome> <itens> — criar preset\n"
+            "• /preset list — listar presets\n"
+            "• /preset delete <nome> — apagar preset"
+        )
+        return ConversationHandler.END
+
+    async def _save_preset(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """Callback: user confirmed saving items as a meal preset."""
+        query = update.callback_query
+        await query.answer()
+        preset_name = context.user_data.pop("pending_preset_name", None)
+        items = context.user_data.pop("pending_preset_items", None)
+        if not preset_name or not items:
+            await query.edit_message_text("❌ Sessão expirada. Tenta /preset create novamente.")
+            return ConversationHandler.END
+
+        item_dicts = [
+            {
+                "name": item.name,
+                "quantity": item.quantity,
+                "unit": item.unit,
+                "calories": item.calories,
+                "protein_g": item.protein_g,
+                "fat_g": item.fat_g,
+                "carbs_g": item.carbs_g,
+                "fiber_g": item.fiber_g,
+            }
+            for item in items
+        ]
+        self._repo.save_meal_preset(preset_name, item_dicts)
+        total_cal = sum(item.calories or 0 for item in items)
+        item_count = len(items)
+        await query.edit_message_text(
+            f"✅ Preset \"{preset_name}\" guardado com {item_count} item(s) ({int(total_cal)} kcal).\n\n"
+            f"_Usa /comi {preset_name} para registar._",
+            parse_mode=ParseMode.MARKDOWN,
+        )
         return ConversationHandler.END
 
     async def _handle_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -815,19 +992,25 @@ class TelegramBot:
         app.add_handler(CommandHandler("dieta", self._cmd_nutricao))
         app.add_handler(CommandHandler("apagar", self._cmd_apagar))
 
-        # Nutrition conversation (text entry + barcode)
+        # Nutrition conversation (text entry + barcode + meal presets)
         conv = ConversationHandler(
             entry_points=[
                 CommandHandler("comi", self._cmd_comi),
+                CommandHandler("preset", self._cmd_preset),
                 MessageHandler(filters.PHOTO, self._handle_photo),
             ],
             states={
                 _AWAITING_CONFIRMATION: [
                     CallbackQueryHandler(self._confirm_food, pattern="^food_confirm$"),
+                    CallbackQueryHandler(self._confirm_preset, pattern="^preset_confirm$"),
                     CallbackQueryHandler(self._cancel_food, pattern="^food_cancel$"),
                 ],
                 _AWAITING_BARCODE_QUANTITY: [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_barcode_quantity),
+                ],
+                _AWAITING_PRESET_SAVE: [
+                    CallbackQueryHandler(self._save_preset, pattern="^preset_save$"),
+                    CallbackQueryHandler(self._cancel_food, pattern="^food_cancel$"),
                 ],
             },
             fallbacks=[CommandHandler("cancelar", self._cancel_food)],
@@ -854,9 +1037,10 @@ class TelegramBot:
             BotCommand("peso", "Ver ou registar peso (ex: /peso 78.5)"),
             BotCommand("status", "Estado do bot"),
             BotCommand("ajuda", "Lista de comandos"),
-            BotCommand("comi", "Registar alimento (ex: /comi 2 ovos e 1 torrada)"),
+            BotCommand("comi", "Registar alimento ou preset (ex: /comi Lanche)"),
             BotCommand("nutricao", "Resumo nutricional do dia"),
             BotCommand("apagar", "Apagar último alimento registado"),
+            BotCommand("preset", "Gerir presets de refeição (create/list/delete)"),
         ]
         await bot.set_my_commands(commands)
         logger.info("Telegram commands registered with BotFather")

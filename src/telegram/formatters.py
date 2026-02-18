@@ -313,9 +313,12 @@ def format_help_message() -> str:
         "/objetivo métrica valor — Ver ou definir objetivos (passos/sono/peso/calorias/proteina/gordura/hidratos)\n"
         "/peso [valor] — Ver ou registar peso\n"
         "/status — Estado do bot\n"
-        "/comi texto — Registar refeição\n"
+        "/comi texto — Registar refeição (ou nome de um preset)\n"
         "/nutricao — Resumo nutricional do dia\n"
         "/apagar — Apagar último alimento registado\n"
+        "/preset create nome itens — Guardar preset de refeição\n"
+        "/preset list — Listar presets guardados\n"
+        "/preset delete nome — Apagar preset\n"
         "/ajuda — Esta mensagem"
     )
 
@@ -628,6 +631,69 @@ def format_goals(goals: dict[str, float]) -> str:
     if macro_lines:
         lines += ["", "🍽 *Nutrição:*"] + macro_lines
 
+    return "\n".join(lines)
+
+
+def format_meal_preset_confirmation(preset_name: str, items: list[Any]) -> str:
+    """Format a meal preset as a confirmation message (same style as food confirmation).
+
+    Args:
+        preset_name: The preset name (e.g. "Lanche").
+        items: List of MealPresetItem ORM objects (or any object with the same attrs).
+
+    Returns:
+        Markdown-formatted confirmation string.
+    """
+    lines = [f"📝 *Registar preset \"{preset_name}\":*", ""]
+    total_cal = 0.0
+    total_prot = 0.0
+    total_fat = 0.0
+    total_carbs = 0.0
+    total_fiber = 0.0
+
+    for i, item in enumerate(items, 1):
+        qty_str = f"{int(item.quantity)}" if item.unit == "un" else f"{item.quantity:g}{item.unit}"
+        cal = item.calories or 0.0
+        prot = item.protein_g or 0.0
+        fat = item.fat_g or 0.0
+        carbs = item.carbs_g or 0.0
+        fiber = item.fiber_g or 0.0
+        total_cal += cal
+        total_prot += prot
+        total_fat += fat
+        total_carbs += carbs
+        total_fiber += fiber
+        lines.append(f"{i}. {item.name.title()} ({qty_str})")
+        lines.append(f"   {int(cal)} kcal | P: {int(prot)}g | G: {int(fat)}g | HC: {int(carbs)}g | F: {int(fiber)}g")
+
+    lines += [
+        "",
+        f"*Total: {int(total_cal)} kcal | P: {int(total_prot)}g | G: {int(total_fat)}g | HC: {int(total_carbs)}g | F: {int(total_fiber)}g*",
+    ]
+    return "\n".join(lines)
+
+
+def format_meal_presets_list(presets: list[Any]) -> str:
+    """Format the list of saved meal presets for /preset list.
+
+    Args:
+        presets: List of MealPreset ORM objects (with .name and .items loaded).
+
+    Returns:
+        Markdown-formatted string.
+    """
+    if not presets:
+        return "📋 *Presets de refeição*\n\nSem presets guardados.\nUsa `/preset create <nome> <itens>` para criar um."
+
+    lines = ["📋 *Presets de refeição:*", ""]
+    for preset in presets:
+        total_cal = sum((i.calories or 0) for i in preset.items)
+        total_prot = sum((i.protein_g or 0) for i in preset.items)
+        item_count = len(preset.items)
+        lines.append(f"• *{preset.name}* — {item_count} item(s) | {int(total_cal)} kcal | P: {int(total_prot)}g")
+
+    lines += ["", "_Usa /comi <nome> para registar um preset._"]
+    lines.append("_Usa /preset delete <nome> para apagar._")
     return "\n".join(lines)
 
 

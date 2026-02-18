@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-from sqlalchemy import Boolean, Column, Date, DateTime, Float, Integer, String, Text
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy import Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import DeclarativeBase, relationship
 
 
 class Base(DeclarativeBase):
@@ -79,3 +79,35 @@ class FoodEntry(Base):
     source = Column(String(30), nullable=False, default="openfoodfacts")
     barcode = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+
+
+class MealPreset(Base):
+    """A named collection of food items that can be quickly registered."""
+    __tablename__ = "meal_presets"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(100), unique=True, nullable=False, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+    items = relationship("MealPresetItem", back_populates="preset",
+                         cascade="all, delete-orphan", order_by="MealPresetItem.id")
+
+    def __repr__(self) -> str:
+        return f"<MealPreset name={self.name!r}>"
+
+
+class MealPresetItem(Base):
+    """One food item belonging to a MealPreset."""
+    __tablename__ = "meal_preset_items"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    preset_id = Column(Integer, ForeignKey("meal_presets.id"), nullable=False, index=True)
+    name = Column(String(200), nullable=False)
+    quantity = Column(Float, nullable=False, default=1.0)
+    unit = Column(String(20), nullable=False, default="un")
+    calories = Column(Float, nullable=True)
+    protein_g = Column(Float, nullable=True)
+    fat_g = Column(Float, nullable=True)
+    carbs_g = Column(Float, nullable=True)
+    fiber_g = Column(Float, nullable=True)
+    preset = relationship("MealPreset", back_populates="items")
+
+    def __repr__(self) -> str:
+        return f"<MealPresetItem {self.name!r} {self.quantity}{self.unit}>"

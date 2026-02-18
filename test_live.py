@@ -24,7 +24,7 @@ from src.config import ConfigError, load_config
 from src.database.repository import Repository
 from src.garmin.client import GarminClient
 from src.scheduler.jobs import (
-    make_daily_report_job,
+    make_report_callback,
     make_sync_job,
     make_weekly_report_job,
 )
