@@ -17,7 +17,7 @@ from .config import ConfigError, load_config
 from .database.repository import Repository
 from .garmin.client import GarminClient
 from .scheduler.jobs import (
-    make_daily_report_job,
+    make_report_callback,
     make_sync_job,
     make_sync_retry_job,
     make_wake_check_job,
@@ -134,24 +134,14 @@ def _build_fixed_time_jobs(
     tg_bot: TelegramBot,
     tz,
 ) -> None:
-    """Add the original fixed-time sync, report, and retry jobs."""
+    """Add fixed-time sync and retry jobs. Report is sent on-demand via /sync."""
     sync_job = make_sync_job(garmin, repo)
-    report_job = make_daily_report_job(repo, tg_bot, config)
 
     scheduler.add_job(
         sync_job,
         CronTrigger(hour=config.sync_hour, minute=config.sync_minute, timezone=tz),
         id="daily_sync",
         name="Daily Garmin Sync",
-        max_instances=1,
-        coalesce=True,
-        misfire_grace_time=3600,
-    )
-    scheduler.add_job(
-        report_job,
-        CronTrigger(hour=config.report_hour, minute=config.report_minute, timezone=tz),
-        id="daily_report",
-        name="Daily Report",
         max_instances=1,
         coalesce=True,
         misfire_grace_time=3600,
@@ -189,8 +179,8 @@ def _build_wake_detection_jobs(
     A fallback job at WAKE_CHECK_END ensures the report is still sent even if
     the device never synced (e.g. watch not worn).
     """
-    wake_job = make_wake_check_job(garmin, repo, tg_bot, config)
-    fallback_job = make_wake_fallback_job(garmin, repo, tg_bot, config)
+    wake_job = make_wake_check_job(garmin, repo)
+    fallback_job = make_wake_fallback_job(garmin, repo)
 
     # Build hour range for the cron expression: e.g. "5-11" for 05:00-11:59
     # The fallback job at WAKE_CHECK_END covers the final hour boundary.
@@ -263,6 +253,7 @@ def run() -> None:
                 logger.error("Backfill failed for %s: %s", day, exc)
 
     tg_bot = TelegramBot(config, repo, garmin_sync_callback=sync_callback, garmin_backfill_callback=backfill_callback, garmin_client=garmin)
+    tg_bot._garmin_report = make_report_callback(repo, tg_bot)
 
     # Health checks (non-fatal for Garmin/Telegram)
     _run_health_checks(garmin, repo, config.telegram_bot_token, int(config.telegram_chat_id))
@@ -284,10 +275,9 @@ def run() -> None:
         )
     else:
         logger.info(
-            "Scheduler started (fixed-time mode). Sync at %02d:%02d, Report at %02d:%02d, "
+            "Scheduler started (fixed-time mode). Sync at %02d:%02d, "
             "Weekly on %s at %02d:%02d (%s)",
             config.sync_hour, config.sync_minute,
-            config.report_hour, config.report_minute,
             config.weekly_report_day, config.weekly_hour, config.weekly_minute,
             config.timezone,
         )

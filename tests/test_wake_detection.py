@@ -3,7 +3,7 @@
 import os
 import tempfile
 from datetime import date, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -164,21 +164,12 @@ def test_check_sleep_available_false_on_exception():
 from src.scheduler.jobs import make_wake_check_job, make_wake_fallback_job
 
 
-def _mock_config():
-    """Return a mock config with optional features disabled."""
-    config = MagicMock()
-    config.groq_api_key = None
-    return config
-
-
 def test_wake_check_job_skips_if_report_already_sent():
-
     garmin = MagicMock()
     repo = MagicMock()
-    bot = MagicMock()
     repo.has_report_sent_today.return_value = True
 
-    job = make_wake_check_job(garmin, repo, bot, _mock_config())
+    job = make_wake_check_job(garmin, repo)
     job()
 
     # Should not check Garmin at all
@@ -186,30 +177,24 @@ def test_wake_check_job_skips_if_report_already_sent():
 
 
 def test_wake_check_job_skips_if_no_sleep_data():
-
-
     garmin = MagicMock()
     repo = MagicMock()
-    bot = MagicMock()
     repo.has_report_sent_today.return_value = False
     garmin.check_sleep_available.return_value = False
 
-    job = make_wake_check_job(garmin, repo, bot, _mock_config())
+    job = make_wake_check_job(garmin, repo)
     job()
 
     # Should not sync
     garmin.get_yesterday_summary.assert_not_called()
 
 
-def test_wake_check_job_triggers_sync_and_report():
-
+def test_wake_check_job_triggers_sync_on_wake():
+    """Wake check syncs data and marks as sent (no auto-report)."""
     from src.garmin.client import DailySummary, SleepData, ActivityData
 
     garmin = MagicMock()
     repo = MagicMock()
-    bot = MagicMock()
-    bot.send_daily_summary = AsyncMock()
-
     repo.has_report_sent_today.return_value = False
     garmin.check_sleep_available.return_value = True
 
@@ -223,55 +208,33 @@ def test_wake_check_job_triggers_sync_and_report():
         "sleep_hours": 7.5, "garmin_sync_success": True,
     }
 
-    row_mock = MagicMock()
-    row_mock.date = yesterday
-    row_mock.sleep_hours = 7.5
-    row_mock.sleep_score = 82
-    row_mock.sleep_quality = "Excelente"
-    row_mock.steps = 10000
-    row_mock.active_calories = 400
-    row_mock.resting_calories = 1700
-    row_mock.resting_heart_rate = None
-    row_mock.avg_stress = None
-    row_mock.body_battery_high = None
-    row_mock.body_battery_low = None
-    row_mock.weight_kg = None
-    repo.get_metrics_by_date.return_value = row_mock
-    repo.get_daily_nutrition.return_value = {"entry_count": 0}
-
-    job = make_wake_check_job(garmin, repo, bot, _mock_config())
+    job = make_wake_check_job(garmin, repo)
     job()
 
     # Should have synced
     garmin.get_yesterday_summary.assert_called_once()
     repo.save_daily_metrics.assert_called_once()
-    # Should have logged report sent
+    # Should mark as sent to prevent fallback double-sync
     repo.log_report_sent.assert_called_once()
 
 
 def test_wake_fallback_job_skips_if_report_sent():
-
-
     garmin = MagicMock()
     repo = MagicMock()
-    bot = MagicMock()
     repo.has_report_sent_today.return_value = True
 
-    job = make_wake_fallback_job(garmin, repo, bot, _mock_config())
+    job = make_wake_fallback_job(garmin, repo)
     job()
 
     garmin.get_yesterday_summary.assert_not_called()
 
 
-def test_wake_fallback_job_forces_sync_and_report():
-
+def test_wake_fallback_job_forces_sync():
+    """Fallback syncs data (no auto-report)."""
     from src.garmin.client import DailySummary, SleepData, ActivityData
 
     garmin = MagicMock()
     repo = MagicMock()
-    bot = MagicMock()
-    bot.send_daily_summary = AsyncMock()
-
     repo.has_report_sent_today.return_value = False
 
     yesterday = date.today() - __import__("datetime").timedelta(days=1)
@@ -284,25 +247,10 @@ def test_wake_fallback_job_forces_sync_and_report():
         "sleep_hours": None, "garmin_sync_success": True,
     }
 
-    row_mock = MagicMock()
-    row_mock.date = yesterday
-    row_mock.sleep_hours = None
-    row_mock.sleep_score = None
-    row_mock.sleep_quality = None
-    row_mock.steps = 8000
-    row_mock.active_calories = 300
-    row_mock.resting_calories = 1600
-    row_mock.resting_heart_rate = None
-    row_mock.avg_stress = None
-    row_mock.body_battery_high = None
-    row_mock.body_battery_low = None
-    row_mock.weight_kg = None
-    repo.get_metrics_by_date.return_value = row_mock
-    repo.get_daily_nutrition.return_value = {"entry_count": 0}
-
-    job = make_wake_fallback_job(garmin, repo, bot, _mock_config())
+    job = make_wake_fallback_job(garmin, repo)
     job()
 
     garmin.get_yesterday_summary.assert_called_once()
     repo.save_daily_metrics.assert_called_once()
-    repo.log_report_sent.assert_called_once()
+    # Fallback does NOT call log_report_sent (user triggers /sync manually)
+    repo.log_report_sent.assert_not_called()

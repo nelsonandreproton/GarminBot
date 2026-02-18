@@ -74,6 +74,7 @@ class TelegramBot:
         self._garmin_sync = garmin_sync_callback
         self._garmin_backfill = garmin_backfill_callback
         self._garmin_client = garmin_client
+        self._garmin_report: Callable | None = None  # Set by main.py after bot creation
         self._app: Application | None = None
         # NutritionService (lazy init — only if GROQ_API_KEY is set)
         self._nutrition_service = None
@@ -104,7 +105,7 @@ class TelegramBot:
     async def send_daily_summary(
         self,
         metrics: dict[str, Any],
-        nutrition_recommendation: str | None = None,
+        show_sleep: bool = True,
     ) -> None:
         """Fetch weekly context, generate alerts, and send the daily summary message."""
         day = metrics.get("date", date.today())
@@ -119,7 +120,7 @@ class TelegramBot:
             metrics,
             weekly_stats=weekly,
             alerts=alerts or None,
-            nutrition_recommendation=nutrition_recommendation,
+            show_sleep=show_sleep,
         )
         await self._send(text)
         logger.info("Daily summary sent")
@@ -157,25 +158,41 @@ class TelegramBot:
         return update.effective_chat.id == self._chat_id
 
     async def _cmd_hoje(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """/hoje — today's metrics (may be incomplete, sync hasn't run yet)."""
+        """/hoje — live snapshot of today from Garmin (no sleep — assigned tomorrow)."""
         if not self._auth_check(update) or _is_rate_limited(update.effective_chat.id):
             return
-        today = date.today()
-        row = self._repo.get_metrics_by_date(today)
-        if row is None:
-            await update.message.reply_text("Sem dados para hoje ainda. Usa /sync para forçar sincronização.")
+        if self._garmin_client is None:
+            await update.message.reply_text("Garmin não configurado.")
             return
-        metrics = {
-            "date": row.date,
-            "sleep_hours": row.sleep_hours,
-            "sleep_score": row.sleep_score,
-            "sleep_quality": row.sleep_quality,
-            "steps": row.steps,
-            "active_calories": row.active_calories,
-            "resting_calories": row.resting_calories,
-        }
-        text = format_daily_summary(metrics)
-        await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+        await update.message.reply_text("⏳ A obter dados de hoje do Garmin...")
+        today = date.today()
+        try:
+            activity = self._garmin_client.get_activity_data(today)
+        except Exception as exc:
+            logger.error("Failed to fetch today's activity: %s", exc)
+            await update.message.reply_text(format_error_message("dados de hoje", exc), parse_mode=ParseMode.MARKDOWN)
+            return
+        try:
+            health = self._garmin_client.get_health_data(today)
+        except Exception as exc:
+            logger.warning("Failed to fetch today's health data: %s", exc)
+            health = {}
+        metrics: dict[str, Any] = {"date": today}
+        if activity:
+            metrics["steps"] = activity.steps
+            metrics["active_calories"] = activity.active_calories
+            metrics["resting_calories"] = activity.resting_calories
+            metrics["total_calories"] = activity.total_calories
+        metrics.update(health)
+        nutrition = self._repo.get_daily_nutrition(today)
+        if nutrition.get("entry_count", 0) > 0:
+            metrics["nutrition"] = {
+                **nutrition,
+                "active_calories": metrics.get("active_calories"),
+                "resting_calories": metrics.get("resting_calories"),
+                "total_calories": metrics.get("total_calories"),
+            }
+        await self.send_daily_summary(metrics, show_sleep=False)
 
     async def _cmd_ontem(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """/ontem — yesterday's full summary."""
@@ -230,19 +247,28 @@ class TelegramBot:
                 await self.send_image(chart, caption="📈 Tendência mensal")
 
     async def _cmd_sync(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """/sync — force an immediate Garmin data sync."""
+        """/sync — sync yesterday's Garmin data and send the daily summary."""
         if not self._auth_check(update) or _is_rate_limited(update.effective_chat.id):
             return
-        await update.message.reply_text("⏳ A sincronizar com o Garmin Connect...")
         if self._garmin_sync is None:
             await update.message.reply_text("Sync não configurado.")
             return
+        await update.message.reply_text("⏳ A sincronizar com o Garmin Connect...")
         try:
             self._garmin_sync()
-            await update.message.reply_text("✅ Sync concluído com sucesso!")
         except Exception as exc:
             logger.error("Manual sync failed: %s", exc)
             await update.message.reply_text(format_error_message("sync manual", exc), parse_mode=ParseMode.MARKDOWN)
+            return
+        # Send the daily report for yesterday
+        if self._garmin_report is not None:
+            try:
+                self._garmin_report()
+            except Exception as exc:
+                logger.error("Failed to send report after sync: %s", exc)
+                await update.message.reply_text(format_error_message("relatório diário", exc), parse_mode=ParseMode.MARKDOWN)
+        else:
+            await update.message.reply_text("✅ Sync concluído.")
 
     async def _cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """/status — bot status and last sync info."""
@@ -785,11 +811,11 @@ class TelegramBot:
         """Register command list with BotFather so they appear in the Telegram UI."""
         bot = Bot(token=self._config.telegram_bot_token)
         commands = [
-            BotCommand("hoje", "Resumo de hoje"),
+            BotCommand("hoje", "Ponto de situação do dia atual (ao vivo)"),
             BotCommand("ontem", "Resumo de ontem"),
             BotCommand("semana", "Relatório semanal"),
             BotCommand("mes", "Relatório mensal"),
-            BotCommand("sync", "Forçar sincronização"),
+            BotCommand("sync", "Sincronizar e ver resumo do dia anterior"),
             BotCommand("backfill", "Sincronizar dias em falta"),
             BotCommand("historico", "Ver dia específico ou últimos N dias"),
             BotCommand("exportar", "Exportar dados em CSV"),

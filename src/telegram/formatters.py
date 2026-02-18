@@ -55,7 +55,7 @@ def format_daily_summary(
     weekly_stats: dict[str, Any] | None = None,
     alerts: list[str] | None = None,
     nutrition: dict[str, Any] | None = None,
-    nutrition_recommendation: str | None = None,
+    show_sleep: bool = True,
 ) -> str:
     """Format a daily health summary message for Telegram.
 
@@ -66,6 +66,8 @@ def format_daily_summary(
         weekly_stats: Optional 7-day averages for comparison section.
         alerts: Optional list of alert strings to append.
         nutrition: Optional daily nutrition totals (overrides metrics["nutrition"]).
+        show_sleep: Whether to include the Sono section. Set to False for
+                    today's live snapshot (/hoje), where sleep belongs to tomorrow.
 
     Returns:
         Markdown-formatted string ready to send via Telegram.
@@ -80,19 +82,22 @@ def format_daily_summary(
     active_cals = metrics.get("active_calories")
     resting_cals = metrics.get("resting_calories")
 
-    score_stars = ""
-    if sleep_score is not None:
-        stars = min(5, max(0, round(sleep_score / 20)))
-        score_stars = " " + "⭐" * stars
+    lines = [f"📊 *Resumo de {day_str}*", ""]
 
-    lines = [
-        f"📊 *Resumo de {day_str}*",
-        "",
-        "😴 *Sono*",
-        f"• Duração: {_fmt_hours(sleep_h)}",
-        f"• Score: {sleep_score if sleep_score is not None else '—'}/100{score_stars}",
-        f"• Avaliação: {sleep_quality}",
-        "",
+    if show_sleep:
+        score_stars = ""
+        if sleep_score is not None:
+            stars = min(5, max(0, round(sleep_score / 20)))
+            score_stars = " " + "⭐" * stars
+        lines += [
+            "😴 *Sono*",
+            f"• Duração: {_fmt_hours(sleep_h)}",
+            f"• Score: {sleep_score if sleep_score is not None else '—'}/100{score_stars}",
+            f"• Avaliação: {sleep_quality}",
+            "",
+        ]
+
+    lines += [
         "👟 *Atividade*",
         f"• Passos: {_fmt_steps(steps)}",
         f"• Calorias ativas: {_fmt_cals(active_cals)} kcal 🔥",
@@ -118,16 +123,14 @@ def format_daily_summary(
     if weekly_stats:
         avg_sleep = weekly_stats.get("sleep_avg_hours")
         avg_steps = weekly_stats.get("steps_avg")
-
-        sleep_t = _sleep_trend(sleep_h, avg_sleep)
         steps_t = _trend(steps, avg_steps)
 
-        lines += [
-            "",
-            "📈 *Comparação semanal:*",
-            f"• Sono médio: {_fmt_hours(avg_sleep)}{sleep_t}",
-            f"• Passos médios: {_fmt_steps(avg_steps)}{steps_t}",
-        ]
+        weekly_lines = ["", "📈 *Comparação semanal:*"]
+        if show_sleep:
+            sleep_t = _sleep_trend(sleep_h, avg_sleep)
+            weekly_lines.append(f"• Sono médio: {_fmt_hours(avg_sleep)}{sleep_t}")
+        weekly_lines.append(f"• Passos médios: {_fmt_steps(avg_steps)}{steps_t}")
+        lines += weekly_lines
 
     nutrition = nutrition or metrics.get("nutrition")
     if nutrition and nutrition.get("entry_count", 0) > 0:
@@ -140,9 +143,6 @@ def format_daily_summary(
 
     if alerts:
         lines += ["", "💬 *Alertas:*"] + [f"• {a}" for a in alerts]
-
-    if nutrition_recommendation:
-        lines += ["", format_nutrition_recommendation_section(nutrition_recommendation)]
 
     return "\n".join(lines)
 
@@ -302,17 +302,20 @@ def format_help_message() -> str:
     return (
         "🤖 Comandos disponíveis:\n"
         "\n"
-        "/hoje — Resumo de hoje\n"
+        "/hoje — Ponto de situação do dia atual (ao vivo)\n"
         "/ontem — Resumo de ontem\n"
         "/semana — Relatório semanal\n"
         "/mes — Relatório mensal\n"
-        "/sync — Forçar sincronização\n"
+        "/sync — Sincronizar e ver resumo do dia anterior\n"
         "/backfill N — Sincronizar últimos N dias\n"
         "/historico YYYY-MM-DD ou N — Ver dia ou últimos N dias\n"
         "/exportar N — Exportar dados em CSV\n"
         "/objetivo métrica valor — Ver ou definir objetivos (passos/sono/peso/calorias/proteina/gordura/hidratos)\n"
         "/peso [valor] — Ver ou registar peso\n"
         "/status — Estado do bot\n"
+        "/comi texto — Registar refeição\n"
+        "/nutricao — Resumo nutricional do dia\n"
+        "/apagar — Apagar último alimento registado\n"
         "/ajuda — Esta mensagem"
     )
 
@@ -402,11 +405,6 @@ def format_nutrition_summary(nutrition: dict[str, Any]) -> str:
             lines.append(f"• Excedente: +{abs(deficit)} kcal ({abs(pct)}%)")
 
     return "\n".join(lines)
-
-
-def format_nutrition_recommendation_section(recommendation: str) -> str:
-    """Format a nutrition recommendation section for the daily report."""
-    return f"🥗 *Recomendação Nutricional*\n\n{recommendation}"
 
 
 def format_weekly_nutrition(weekly_nutrition: dict[str, Any]) -> str:

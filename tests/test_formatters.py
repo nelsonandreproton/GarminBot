@@ -12,7 +12,6 @@ from src.telegram.formatters import (
     format_goals,
     format_monthly_report,
     format_nutrition_day,
-    format_nutrition_recommendation_section,
     format_nutrition_summary,
     format_remaining_macros,
     format_weekly_report,
@@ -285,31 +284,31 @@ def test_format_remaining_macros_garmin_fallback_no_total():
 
 
 # ------------------------------------------------------------------ #
-# Nutrition recommendation tests                                       #
+# show_sleep parameter tests                                           #
 # ------------------------------------------------------------------ #
 
-def test_format_nutrition_recommendation_section():
-    text = format_nutrition_recommendation_section("Come mais proteína ao almoço.")
-    assert "Recomendação Nutricional" in text
-    assert "proteína" in text
-
-
-def test_format_daily_summary_with_nutrition_recommendation():
+def test_format_daily_summary_no_sleep_section():
+    """show_sleep=False omits the Sono section (used by /hoje)."""
     metrics = {
         "date": date(2026, 2, 13),
         "sleep_hours": 7.5, "sleep_score": 80, "sleep_quality": "Bom",
-        "steps": 10000, "active_calories": 500, "resting_calories": 1600,
+        "steps": 8000, "active_calories": 400, "resting_calories": 1600,
     }
-    text = format_daily_summary(metrics, nutrition_recommendation="Come mais legumes.")
-    assert "Recomendação Nutricional" in text
-    assert "legumes" in text
+    text = format_daily_summary(metrics, show_sleep=False)
+    assert "Sono" not in text
+    assert "Atividade" in text
+    assert "8.000" in text
 
 
-def test_format_daily_summary_without_nutrition_recommendation():
+def test_format_daily_summary_weekly_comparison_no_sleep_when_today():
+    """show_sleep=False also omits 'Sono médio' from weekly comparison."""
     metrics = {
         "date": date(2026, 2, 13),
         "sleep_hours": 7.5, "sleep_score": 80, "sleep_quality": "Bom",
-        "steps": 10000, "active_calories": 500, "resting_calories": 1600,
+        "steps": 8000, "active_calories": 400, "resting_calories": 1600,
     }
-    text = format_daily_summary(metrics, nutrition_recommendation=None)
-    assert "Recomendação Nutricional" not in text
+    weekly = {"sleep_avg_hours": 7.0, "steps_avg": 9000}
+    text = format_daily_summary(metrics, weekly_stats=weekly, show_sleep=False)
+    assert "Sono médio" not in text
+    assert "Passos médios" in text
+    assert "Comparação semanal" in text

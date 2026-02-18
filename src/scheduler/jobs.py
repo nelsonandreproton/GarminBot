@@ -7,7 +7,6 @@ import logging
 import time as _time
 from datetime import date, timedelta
 
-from ..config import Config
 from ..database.repository import Repository
 from ..garmin.client import GarminClient
 from ..telegram.bot import TelegramBot
@@ -55,22 +54,20 @@ def make_sync_job(garmin: GarminClient, repo: Repository) -> callable:
     return sync_yesterday_data_job
 
 
-def make_daily_report_job(repo: Repository, bot: TelegramBot, config: Config) -> callable:
-    """Return a callable that sends the daily Telegram report.
+def make_report_callback(repo: Repository, bot: TelegramBot) -> callable:
+    """Return a callable that sends yesterday's daily report. Used by /sync command.
 
     Args:
         repo: Database repository.
         bot: TelegramBot instance.
-        config: Application configuration.
 
     Returns:
-        Callable suitable for APScheduler.
+        Callable that sends the daily report when called.
     """
-    def send_daily_report_job() -> None:
-        logger.info("Job: sending daily report")
-        _send_daily_report(repo, bot, config)
+    def report_callback() -> None:
+        _send_daily_report(repo, bot)
 
-    return send_daily_report_job
+    return report_callback
 
 
 def make_weekly_report_job(repo: Repository, bot: TelegramBot, database_path: str) -> callable:
@@ -151,23 +148,19 @@ def make_sync_retry_job(garmin: GarminClient, repo: Repository) -> callable:
 def make_wake_check_job(
     garmin: GarminClient,
     repo: Repository,
-    bot: TelegramBot,
-    config: Config,
 ) -> callable:
     """Return a job that polls Garmin for completed sleep data to detect wake-up.
 
     When sleep data becomes available for today, it means the user has woken up
-    and their device has synced. At that point, trigger the full sync and daily
-    report.
+    and their device has synced. Syncs data and marks the day as done so the
+    fallback job does not double-sync.
 
     This job is designed to run periodically (e.g. every 10 minutes) within a
-    configured morning window. It is a no-op if a report was already sent today.
+    configured morning window. It is a no-op if a sync was already done today.
 
     Args:
         garmin: Authenticated GarminClient.
         repo: Database repository.
-        bot: TelegramBot instance.
-        config: Application configuration.
 
     Returns:
         Callable suitable for APScheduler.
@@ -187,20 +180,18 @@ def make_wake_check_job(
 
         logger.info("Wake check: sleep data detected — user has woken up!")
 
-        # Run the full sync
+        # Run the full sync; report is sent manually via /sync
         try:
             summary = garmin.get_yesterday_summary()
             metrics = garmin.to_metrics_dict(summary)
             repo.save_daily_metrics(summary.date, metrics)
             status = "success" if metrics.get("garmin_sync_success") else "partial"
             repo.log_sync(status)
+            repo.log_report_sent()  # Mark as done so fallback doesn't double-sync
             logger.info("Wake check: sync complete for %s (status=%s)", summary.date, status)
         except Exception as exc:
             repo.log_sync("error", str(exc))
             logger.error("Wake check: sync failed: %s", exc, exc_info=True)
-
-        # Send the daily report
-        _send_daily_report(repo, bot, config)
 
     return wake_check_job
 
@@ -208,20 +199,16 @@ def make_wake_check_job(
 def make_wake_fallback_job(
     garmin: GarminClient,
     repo: Repository,
-    bot: TelegramBot,
-    config: Config,
 ) -> callable:
     """Return a fallback job that runs at the end of the wake detection window.
 
     If wake detection hasn't triggered by the end of the window (e.g. user
-    didn't wear the watch, or device didn't sync), force the sync and report
-    with whatever data is available.
+    didn't wear the watch, or device didn't sync), force-syncs with whatever
+    data is available. No automatic report is sent.
 
     Args:
         garmin: Authenticated GarminClient.
         repo: Database repository.
-        bot: TelegramBot instance.
-        config: Application configuration.
 
     Returns:
         Callable suitable for APScheduler.
@@ -231,9 +218,9 @@ def make_wake_fallback_job(
             logger.info("Wake fallback: report already sent today, skipping")
             return
 
-        logger.info("Wake fallback: end of detection window, forcing sync + report")
+        logger.info("Wake fallback: end of detection window, forcing sync (no auto-report)")
 
-        # Attempt sync even if data is incomplete
+        # Attempt sync even if data is incomplete; report is sent manually via /sync
         try:
             summary = garmin.get_yesterday_summary()
             metrics = garmin.to_metrics_dict(summary)
@@ -245,13 +232,10 @@ def make_wake_fallback_job(
             repo.log_sync("error", str(exc))
             logger.error("Wake fallback: sync failed: %s", exc, exc_info=True)
 
-        # Send the report regardless
-        _send_daily_report(repo, bot, config)
-
     return wake_fallback_job
 
 
-def _send_daily_report(repo: Repository, bot: TelegramBot, config: Config) -> None:
+def _send_daily_report(repo: Repository, bot: TelegramBot) -> None:
     """Shared helper: send the daily report and mark it as sent."""
     yesterday = date.today() - timedelta(days=1)
     row = repo.get_metrics_by_date(yesterday)
@@ -290,29 +274,8 @@ def _send_daily_report(repo: Repository, bot: TelegramBot, config: Config) -> No
             "total_calories": row.total_calories,
         }
 
-    # Generate nutrition recommendation if macro goals are set
-    nutrition_rec = None
-    if config.groq_api_key and nutrition and nutrition.get("entry_count", 0) > 0:
-        goals = repo.get_goals()
-        macro_goals = {k: v for k, v in goals.items() if k in ("calories", "protein_g", "fat_g", "carbs_g")}
-        if macro_goals:
-            from ..nutrition.recommender import generate_nutrition_recommendation
-            weekly_nutrition = repo.get_weekly_nutrition(yesterday)
-            logger.info("Generating nutrition recommendation")
-            nutrition_rec = generate_nutrition_recommendation(
-                nutrition=nutrition,
-                goals=goals,
-                metrics=metrics,
-                weekly_nutrition=weekly_nutrition if weekly_nutrition.get("days_with_data", 0) > 0 else None,
-                api_key=config.groq_api_key,
-            )
-            if nutrition_rec:
-                logger.info("Nutrition recommendation generated")
-            else:
-                logger.warning("Nutrition recommendation returned None")
-
     try:
-        _run_async(bot.send_daily_summary(metrics, nutrition_recommendation=nutrition_rec))
+        _run_async(bot.send_daily_summary(metrics))
         repo.log_report_sent()
         logger.info("Daily report sent for %s", yesterday)
     except Exception as exc:
