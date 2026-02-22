@@ -64,6 +64,54 @@ def _is_rate_limited(chat_id: int) -> bool:
     return False
 
 
+def _parse_date_prefix(args: list[str]) -> tuple[date, list[str]]:
+    """Parse an optional date prefix from command args.
+
+    Recognised prefixes (case-insensitive):
+      ontem          → yesterday
+      anteontem      → two days ago
+      YYYY-MM-DD     → exact date
+      DD/MM/YYYY     → exact date (pt format)
+
+    Returns (resolved_date, remaining_args).
+    Raises ValueError if a date keyword is recognised but the date is invalid or in the future.
+    """
+    today = date.today()
+    if not args:
+        return today, args
+
+    first = args[0].lower()
+
+    if first == "ontem":
+        return today - timedelta(days=1), args[1:]
+
+    if first == "anteontem":
+        return today - timedelta(days=2), args[1:]
+
+    # Try YYYY-MM-DD
+    if len(first) == 10 and first[4] == "-" and first[7] == "-":
+        try:
+            parsed = date.fromisoformat(args[0])
+        except ValueError:
+            raise ValueError(f"Data inválida: {args[0]}")
+        if parsed > today:
+            raise ValueError("Não posso registar em datas futuras.")
+        return parsed, args[1:]
+
+    # Try DD/MM/YYYY
+    if len(first) == 10 and first[2] == "/" and first[5] == "/":
+        try:
+            day, month, year = first.split("/")
+            parsed = date(int(year), int(month), int(day))
+        except (ValueError, IndexError):
+            raise ValueError(f"Data inválida: {args[0]}")
+        if parsed > today:
+            raise ValueError("Não posso registar em datas futuras.")
+        return parsed, args[1:]
+
+    return today, args
+
+
 def _on_send_retry(retry_state) -> None:
     logger.warning("Telegram send attempt %d failed: %s", retry_state.attempt_number, retry_state.outcome.exception())
 
@@ -611,17 +659,28 @@ class TelegramBot:
     # ------------------------------------------------------------------ #
 
     async def _cmd_comi(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """/comi <texto|preset> — register food eaten, or load a named meal preset."""
+        """/comi [ontem|anteontem|YYYY-MM-DD] <texto|preset> — register food eaten."""
         if not self._auth_check(update) or _is_rate_limited(update.effective_chat.id):
             return ConversationHandler.END
 
-        text = " ".join(context.args or []).strip()
+        args = list(context.args or [])
+        try:
+            target_date, args = _parse_date_prefix(args)
+        except ValueError as exc:
+            await update.message.reply_text(f"❌ {exc}")
+            return ConversationHandler.END
+
+        text = " ".join(args).strip()
         if not text:
             await update.message.reply_text(
-                "Uso: /comi 2 ovos e 1 torrada\n\nOu usa o nome de um preset guardado (ex: /comi Lanche).\n"
+                "Uso: /comi 2 ovos e 1 torrada\n"
+                "      /comi ontem 2 ovos e 1 torrada\n\n"
+                "Ou usa o nome de um preset guardado (ex: /comi Lanche).\n"
                 "Lista de presets: /preset list"
             )
             return ConversationHandler.END
+
+        context.user_data["pending_date"] = target_date
 
         # ---- Check if text matches a saved meal preset (case-insensitive) ----
         preset = self._repo.get_meal_preset_by_name(text)
@@ -631,6 +690,8 @@ class TelegramBot:
                 return ConversationHandler.END
             context.user_data["pending_preset"] = preset
             msg = format_meal_preset_confirmation(preset.name, preset.items)
+            if target_date != date.today():
+                msg += f"\n\n📅 A registar em: *{target_date.strftime('%d/%m/%Y')}*"
             keyboard = InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton("✅ Confirmar", callback_data="preset_confirm"),
@@ -661,6 +722,8 @@ class TelegramBot:
 
         context.user_data["pending_food"] = items
         msg = format_food_confirmation(items)
+        if target_date != date.today():
+            msg += f"\n\n📅 A registar em: *{target_date.strftime('%d/%m/%Y')}*"
         keyboard = InlineKeyboardMarkup([
             [
                 InlineKeyboardButton("✅ Confirmar", callback_data="food_confirm"),
@@ -679,7 +742,7 @@ class TelegramBot:
             await query.edit_message_text("❌ Sessão expirada. Tenta /comi novamente.")
             return ConversationHandler.END
 
-        today = date.today()
+        target_date = context.user_data.pop("pending_date", date.today())
         entries = [
             {
                 "name": item.name,
@@ -695,17 +758,18 @@ class TelegramBot:
             }
             for item in items
         ]
-        self._repo.save_food_entries(today, entries)
+        self._repo.save_food_entries(target_date, entries)
         total_cal = sum(item.calories or 0 for item in items)
 
-        msg = f"✅ Registado! Total: {int(total_cal)} kcal"
+        date_label = f" ({target_date.strftime('%d/%m/%Y')})" if target_date != date.today() else ""
+        msg = f"✅ Registado{date_label}! Total: {int(total_cal)} kcal"
         from .formatters import format_remaining_macros
         goals = self._repo.get_goals()
-        totals = self._repo.get_daily_nutrition(today)
+        totals = self._repo.get_daily_nutrition(target_date)
         garmin_data = None
         if self._garmin_client:
             try:
-                garmin_data = self._garmin_client.get_activity_data(today)
+                garmin_data = self._garmin_client.get_activity_data(target_date)
             except Exception:
                 pass
         remaining = format_remaining_macros(totals, goals, garmin_data)
@@ -724,7 +788,7 @@ class TelegramBot:
             await query.edit_message_text("❌ Sessão expirada. Tenta /comi novamente.")
             return ConversationHandler.END
 
-        today = date.today()
+        target_date = context.user_data.pop("pending_date", date.today())
         entries = [
             {
                 "name": item.name,
@@ -739,17 +803,18 @@ class TelegramBot:
             }
             for item in preset.items
         ]
-        self._repo.save_food_entries(today, entries)
+        self._repo.save_food_entries(target_date, entries)
         total_cal = sum(item.calories or 0 for item in preset.items)
 
-        msg = f"✅ Preset \"{preset.name}\" registado! Total: {int(total_cal)} kcal"
+        date_label = f" ({target_date.strftime('%d/%m/%Y')})" if target_date != date.today() else ""
+        msg = f"✅ Preset \"{preset.name}\" registado{date_label}! Total: {int(total_cal)} kcal"
         from .formatters import format_remaining_macros
         goals = self._repo.get_goals()
-        totals = self._repo.get_daily_nutrition(today)
+        totals = self._repo.get_daily_nutrition(target_date)
         garmin_data = None
         if self._garmin_client:
             try:
-                garmin_data = self._garmin_client.get_activity_data(today)
+                garmin_data = self._garmin_client.get_activity_data(target_date)
             except Exception:
                 pass
         remaining = format_remaining_macros(totals, goals, garmin_data)
@@ -766,6 +831,7 @@ class TelegramBot:
         context.user_data.pop("pending_preset", None)
         context.user_data.pop("pending_preset_name", None)
         context.user_data.pop("pending_preset_items", None)
+        context.user_data.pop("pending_date", None)
         if update.callback_query:
             await update.callback_query.answer()
             await update.callback_query.edit_message_text("❌ Registo cancelado.")
