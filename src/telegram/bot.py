@@ -1121,8 +1121,8 @@ class TelegramBot:
                 )
             return
 
-        # /equipamento minutos N
-        if args[0].lower() == "minutos":
+        # /equipamento minutos N  (also accepts "tempo" as alias)
+        if args[0].lower() in ("minutos", "tempo"):
             if len(args) < 2 or not args[1].isdigit():
                 await update.message.reply_text(
                     "Usa: `/equipamento minutos <número>`", parse_mode=ParseMode.MARKDOWN

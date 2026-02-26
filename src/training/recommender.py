@@ -26,7 +26,7 @@ REGRAS:
 
 3. Usa APENAS o equipamento listado pelo utilizador. Não sugiras máquinas ou equipamento que não esteja na lista.
 
-4. O treino deve caber no tempo indicado (inclui aquecimento de 5min e retorno à calma de 3min).
+4. O treino deve caber no tempo indicado (inclui aquecimento de 5min). Não incluas retorno à calma.
 
 5. Adapta intensidade à recuperação:
    - Sono < 6h ou score < 50 → sessão leve, mobilidade + carries
@@ -40,7 +40,10 @@ REGRAS:
 
 7. Olha para o histórico dos últimos 7 dias e evita repetir os mesmos padrões em dias consecutivos.
 
-8. Formato da resposta (Telegram, sem markdown pesado):
+8. RESTRIÇÕES DE EXERCÍCIO OBRIGATÓRIAS (não podes ignorar):
+   - Supino (bench press) é feito SEMPRE com halteres, nunca com barra.
+
+9. Formato da resposta (Telegram, sem markdown pesado):
    🏋️ TREINO — [foco principal]
    ⏱ [X] minutos
 
@@ -51,12 +54,9 @@ REGRAS:
    [EMOJI] [PADRÃO] — [exercício]
    [séries] x [reps/tempo] | Descanso: [tempo]
 
-   🧘 Retorno à calma (3min)
-   • [alongamentos relevantes]
-
    💡 [Uma nota curta sobre intensidade/recuperação, se relevante]
 
-9. Sê conciso. Não expliques o porquê de cada escolha. O utilizador quer um plano para seguir."""
+10. Sê conciso. Não expliques o porquê de cada escolha. O utilizador quer um plano para seguir."""
 
 
 def _build_user_prompt(
