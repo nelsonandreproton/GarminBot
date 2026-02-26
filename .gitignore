@@ -41,6 +41,8 @@ oauth2_token.json
 .coverage
 htmlcov/
 
-# Plan (not part of source)
+# Plan and local AI config (not part of source)
 plan.md
+plan_*.md
 CLAUDE.md
+.claude/
