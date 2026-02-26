@@ -10,7 +10,7 @@ from typing import Any, Generator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from .models import Base, DailyMetrics, FoodEntry, GarminActivity, MealPreset, MealPresetItem, SyncLog, TrainingEntry, UserGoal, UserSetting, WaistEntry
+from .models import Base, DailyMetrics, FoodCache, FoodEntry, GarminActivity, MealPreset, MealPresetItem, SyncLog, TrainingEntry, UserGoal, UserSetting, WaistEntry
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +74,9 @@ class Repository:
             if "garmin_activities" not in table_names:
                 GarminActivity.__table__.create(self._engine)
                 logger.info("Migration: created table garmin_activities")
+            if "food_cache" not in table_names:
+                FoodCache.__table__.create(self._engine)
+                logger.info("Migration: created table food_cache")
 
     @contextmanager
     def _session(self) -> Generator[Session, None, None]:
@@ -507,6 +510,39 @@ class Repository:
                 "avg_fiber": _avg(result.fiber_g),
                 "days_with_data": result.days_with_data or 0,
             }
+
+    # ------------------------------------------------------------------ #
+    # Food cache operations                                               #
+    # ------------------------------------------------------------------ #
+
+    def get_food_cache(self, query_text: str) -> list[dict] | None:
+        """Return cached FoodItemResult dicts for the normalised query, or None on miss.
+
+        Also bumps use_count and last_used_at on a hit.
+        """
+        import json
+        normalized = query_text.lower().strip()
+        with self._session() as session:
+            entry = session.get(FoodCache, normalized)
+            if entry is None:
+                return None
+            entry.use_count += 1
+            entry.last_used_at = datetime.now(UTC)
+            return json.loads(entry.items_json)
+
+    def set_food_cache(self, query_text: str, items: list[dict]) -> None:
+        """Store or overwrite the LLM result for the given query."""
+        import json
+        normalized = query_text.lower().strip()
+        items_json = json.dumps(items, ensure_ascii=False)
+        with self._session() as session:
+            entry = session.get(FoodCache, normalized)
+            if entry is None:
+                session.add(FoodCache(query_text=normalized, items_json=items_json))
+            else:
+                entry.items_json = items_json
+                entry.last_used_at = datetime.now(UTC)
+        logger.debug("Food cache set for query %r", normalized)
 
     # ------------------------------------------------------------------ #
     # Meal preset operations                                               #

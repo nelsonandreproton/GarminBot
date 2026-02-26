@@ -745,6 +745,27 @@ class TelegramBot:
             await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
             return _AWAITING_CONFIRMATION
 
+        # ---- Check food cache before calling the LLM ----
+        normalized_query = text.lower().strip()
+        cached = self._repo.get_food_cache(normalized_query)
+        if cached is not None:
+            from ..nutrition.service import FoodItemResult
+            items = [FoodItemResult(**d) for d in cached]
+            context.user_data["pending_food"] = items
+            # pending_cache_query intentionally NOT set — no need to re-cache a hit
+            msg = format_food_confirmation(items)
+            msg += "\n\n⚡ _Valores em cache_"
+            if target_date != date.today():
+                msg += f"\n\n📅 A registar em: *{target_date.strftime('%d/%m/%Y')}*"
+            keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("✅ Confirmar", callback_data="food_confirm"),
+                    InlineKeyboardButton("❌ Cancelar", callback_data="food_cancel"),
+                ]
+            ])
+            await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
+            return _AWAITING_CONFIRMATION
+
         # ---- Fall through to AI text parsing ----
         if self._nutrition_service is None:
             await update.message.reply_text(
@@ -765,6 +786,7 @@ class TelegramBot:
             return ConversationHandler.END
 
         context.user_data["pending_food"] = items
+        context.user_data["pending_cache_query"] = normalized_query  # save to cache on confirm
         msg = format_food_confirmation(items)
         if target_date != date.today():
             msg += f"\n\n📅 A registar em: *{target_date.strftime('%d/%m/%Y')}*"
@@ -804,6 +826,12 @@ class TelegramBot:
         ]
         self._repo.save_food_entries(target_date, entries)
         total_cal = sum(item.calories or 0 for item in items)
+
+        # Persist to food cache so the same query skips the LLM next time
+        pending_query = context.user_data.pop("pending_cache_query", None)
+        if pending_query:
+            import dataclasses
+            self._repo.set_food_cache(pending_query, [dataclasses.asdict(item) for item in items])
 
         date_label = f" ({target_date.strftime('%d/%m/%Y')})" if target_date != date.today() else ""
         msg = f"✅ Registado{date_label}! Total: {int(total_cal)} kcal"
@@ -876,6 +904,7 @@ class TelegramBot:
         context.user_data.pop("pending_preset_name", None)
         context.user_data.pop("pending_preset_items", None)
         context.user_data.pop("pending_date", None)
+        context.user_data.pop("pending_cache_query", None)
         if update.callback_query:
             await update.callback_query.answer()
             await update.callback_query.edit_message_text("❌ Registo cancelado.")

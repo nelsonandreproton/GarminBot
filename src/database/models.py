@@ -166,3 +166,17 @@ class WaistEntry(Base):
 
     def __repr__(self) -> str:
         return f"<WaistEntry date={self.date} waist_cm={self.waist_cm}>"
+
+
+class FoodCache(Base):
+    """Cache for /comi LLM results, keyed by normalised query text."""
+    __tablename__ = "food_cache"
+
+    query_text = Column(String(500), primary_key=True)  # lower-cased, stripped
+    items_json = Column(Text, nullable=False)            # JSON list of FoodItemResult dicts
+    use_count = Column(Integer, default=1, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+    last_used_at = Column(DateTime, default=lambda: datetime.now(UTC))
+
+    def __repr__(self) -> str:
+        return f"<FoodCache query={self.query_text!r} use_count={self.use_count}>"
