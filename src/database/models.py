@@ -111,3 +111,28 @@ class MealPresetItem(Base):
 
     def __repr__(self) -> str:
         return f"<MealPresetItem {self.name!r} {self.quantity}{self.unit}>"
+
+
+class UserSetting(Base):
+    """Generic key-value store for user-configurable settings."""
+    __tablename__ = "user_settings"
+
+    key = Column(String(100), primary_key=True)
+    value = Column(Text, nullable=False)
+    updated_at = Column(DateTime, default=lambda: datetime.now(UTC))
+
+    def __repr__(self) -> str:
+        return f"<UserSetting {self.key!r}={self.value!r}>"
+
+
+class TrainingEntry(Base):
+    """Records a training session done by the user on a given day."""
+    __tablename__ = "training_entries"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date = Column(Date, unique=True, nullable=False, index=True)
+    description = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+
+    def __repr__(self) -> str:
+        return f"<TrainingEntry date={self.date} description={self.description!r}>"

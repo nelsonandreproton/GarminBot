@@ -847,3 +847,8 @@ def format_remaining_macros(
                 line += f"\n📊 Défice vs Garmin: {balance} kcal ({pct}%)"
 
     return line
+
+
+def format_workout_section(workout_text: str) -> str:
+    """Wrap LLM workout text with a Telegram-ready header."""
+    return f"💪 *Treino de Hoje*\n\n{workout_text}"

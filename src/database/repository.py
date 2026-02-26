@@ -10,7 +10,7 @@ from typing import Any, Generator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from .models import Base, DailyMetrics, FoodEntry, MealPreset, MealPresetItem, SyncLog, UserGoal
+from .models import Base, DailyMetrics, FoodEntry, MealPreset, MealPresetItem, SyncLog, TrainingEntry, UserGoal, UserSetting
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +62,12 @@ class Repository:
             if "meal_preset_items" not in table_names:
                 MealPresetItem.__table__.create(self._engine)
                 logger.info("Migration: created table meal_preset_items")
+            if "user_settings" not in table_names:
+                UserSetting.__table__.create(self._engine)
+                logger.info("Migration: created table user_settings")
+            if "training_entries" not in table_names:
+                TrainingEntry.__table__.create(self._engine)
+                logger.info("Migration: created table training_entries")
 
     @contextmanager
     def _session(self) -> Generator[Session, None, None]:
@@ -547,3 +553,50 @@ class Repository:
             session.delete(preset)
             logger.debug("Deleted meal preset %r", name)
             return True
+
+    # ------------------------------------------------------------------ #
+    # User settings operations                                             #
+    # ------------------------------------------------------------------ #
+
+    def get_setting(self, key: str) -> str | None:
+        """Return the value for a setting key, or None if not set."""
+        with self._session() as session:
+            row = session.query(UserSetting).filter_by(key=key).first()
+            return row.value if row else None
+
+    def set_setting(self, key: str, value: str) -> None:
+        """Insert or update a setting key-value pair."""
+        with self._session() as session:
+            existing = session.query(UserSetting).filter_by(key=key).first()
+            if existing:
+                existing.value = value
+                existing.updated_at = datetime.now(UTC)
+            else:
+                session.add(UserSetting(key=key, value=value))
+        logger.debug("Setting %r updated to %r", key, value)
+
+    # ------------------------------------------------------------------ #
+    # Training log operations                                              #
+    # ------------------------------------------------------------------ #
+
+    def upsert_training_entry(self, day: date, description: str) -> None:
+        """Insert or update the training entry for a given day."""
+        with self._session() as session:
+            existing = session.query(TrainingEntry).filter_by(date=day).first()
+            if existing:
+                existing.description = description
+                existing.created_at = datetime.now(UTC)
+            else:
+                session.add(TrainingEntry(date=day, description=description))
+        logger.debug("Training entry saved for %s", day)
+
+    def get_recent_training(self, days: int = 7) -> list[TrainingEntry]:
+        """Return training entries for the last N days, ordered by date descending."""
+        cutoff = date.today() - timedelta(days=days)
+        with self._session() as session:
+            return (
+                session.query(TrainingEntry)
+                .filter(TrainingEntry.date > cutoff)
+                .order_by(TrainingEntry.date.desc())
+                .all()
+            )

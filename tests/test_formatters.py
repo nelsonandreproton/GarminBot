@@ -15,6 +15,7 @@ from src.telegram.formatters import (
     format_nutrition_summary,
     format_remaining_macros,
     format_weekly_report,
+    format_workout_section,
 )
 
 
@@ -312,3 +313,24 @@ def test_format_daily_summary_weekly_comparison_no_sleep_when_today():
     assert "Sono médio" not in text
     assert "Passos médios" in text
     assert "Comparação semanal" in text
+
+
+# ------------------------------------------------------------------ #
+# format_workout_section                                               #
+# ------------------------------------------------------------------ #
+
+def test_format_workout_section_includes_header():
+    result = format_workout_section("🏋️ TREINO — Push\nBench press 4x8")
+    assert "💪" in result
+    assert "Treino de Hoje" in result
+
+
+def test_format_workout_section_preserves_content():
+    content = "🏋️ TREINO — Pull\nPull-ups 3x10 | Descanso: 90s"
+    result = format_workout_section(content)
+    assert content in result
+
+
+def test_format_workout_section_empty_string():
+    result = format_workout_section("")
+    assert "Treino de Hoje" in result
