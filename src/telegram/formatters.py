@@ -414,7 +414,10 @@ def format_weekly_nutrition(weekly_nutrition: dict[str, Any]) -> str:
     """Format weekly average nutrition for the weekly report.
 
     Args:
-        weekly_nutrition: Dict from Repository.get_weekly_nutrition().
+        weekly_nutrition: Dict from Repository.get_weekly_nutrition(), optionally
+                          enriched with an ``avg_deficit`` key (int kcal/day).
+                          Positive avg_deficit = ate less than burned (deficit).
+                          Negative avg_deficit = ate more than burned (surplus).
 
     Returns:
         Markdown-formatted section string.
@@ -425,6 +428,7 @@ def format_weekly_nutrition(weekly_nutrition: dict[str, Any]) -> str:
     avg_carbs = weekly_nutrition.get("avg_carbs") or 0.0
     avg_fiber = weekly_nutrition.get("avg_fiber") or 0.0
     days = weekly_nutrition.get("days_with_data", 0)
+    avg_deficit = weekly_nutrition.get("avg_deficit")  # int | None
 
     lines = [
         "🍽 *Nutrição (média diária)*",
@@ -432,6 +436,11 @@ def format_weekly_nutrition(weekly_nutrition: dict[str, Any]) -> str:
         f"• P: {int(avg_prot)}g | G: {int(avg_fat)}g | HC: {int(avg_carbs)}g | Fibra: {int(avg_fiber)}g",
         f"• Dias com registo: {days}",
     ]
+    if avg_deficit is not None:
+        if avg_deficit >= 0:
+            lines.append(f"• Défice médio: -{avg_deficit} kcal/dia")
+        else:
+            lines.append(f"• Excedente médio: +{abs(avg_deficit)} kcal/dia")
     return "\n".join(lines)
 
 

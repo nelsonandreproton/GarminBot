@@ -180,11 +180,24 @@ class TelegramBot:
         await self._send(text)
         logger.info("Daily summary sent")
 
-    async def send_weekly_report(self, stats: dict[str, Any], weight_stats: dict[str, Any] | None = None) -> None:
-        """Send the weekly report message with week-over-week comparison, weight, and nutrition."""
+    async def send_weekly_report(
+        self,
+        stats: dict[str, Any],
+        weight_stats: dict[str, Any] | None = None,
+        weekly_nutrition: dict[str, Any] | None = None,
+    ) -> None:
+        """Send the weekly report message with week-over-week comparison, weight, and nutrition.
+
+        Args:
+            stats: Weekly stats dict from Repository.get_weekly_stats().
+            weight_stats: Optional weekly weight stats.
+            weekly_nutrition: Pre-computed weekly nutrition dict (with optional avg_deficit).
+                              If None, it is fetched from the repository.
+        """
         end_date = stats.get("end_date")
         prev_stats = self._repo.get_previous_weekly_stats(end_date) if end_date else None
-        weekly_nutrition = self._repo.get_weekly_nutrition(end_date) if end_date else None
+        if weekly_nutrition is None:
+            weekly_nutrition = self._repo.get_weekly_nutrition(end_date) if end_date else None
         text = format_weekly_report(
             stats,
             prev_stats=prev_stats,
@@ -302,16 +315,35 @@ class TelegramBot:
             )
             return
 
-        weight_stats = self._repo.get_weekly_weight_stats(last_sunday)
-        await self.send_weekly_report(stats, weight_stats=weight_stats or None)
-
-        # Chart
+        # Fetch rows early — needed for deficit calculation AND chart
         from ..utils.charts import generate_weekly_chart
         from ..utils.insights import generate_insights
         rows = self._repo.get_metrics_range(last_monday, last_sunday)
+
+        # Compute per-day caloric deficit (burned - eaten; None if no food data)
+        deficits: list[int | None] = []
+        for row in rows:
+            nutrition = self._repo.get_daily_nutrition(row.date)
+            if nutrition.get("entry_count", 0) == 0:
+                deficits.append(None)
+                continue
+            eaten = nutrition.get("calories") or 0.0
+            burned = row.total_calories or ((row.active_calories or 0) + (row.resting_calories or 0))
+            deficits.append(int(burned) - int(eaten) if burned else None)
+
+        # Enrich weekly_nutrition with avg_deficit before passing to the report
+        weekly_nutrition = self._repo.get_weekly_nutrition(last_sunday)
+        if weekly_nutrition:
+            valid = [d for d in deficits if d is not None]
+            weekly_nutrition["avg_deficit"] = round(sum(valid) / len(valid)) if valid else None
+
+        weight_stats = self._repo.get_weekly_weight_stats(last_sunday)
+        await self.send_weekly_report(stats, weight_stats=weight_stats or None, weekly_nutrition=weekly_nutrition)
+
+        # Chart
         if rows:
             goals = self._repo.get_goals()
-            chart_bytes = generate_weekly_chart(rows, goals=goals)
+            chart_bytes = generate_weekly_chart(rows, goals=goals, deficits=deficits)
             if chart_bytes:
                 await self.send_image(chart_bytes, caption="📊 Evolução semanal")
 

@@ -22,12 +22,18 @@ def _requires_matplotlib(func):
 
 
 @_requires_matplotlib
-def generate_weekly_chart(rows: list[Any], goals: dict[str, float] | None = None) -> bytes | None:
-    """Generate a bar chart of daily steps and sleep for the last 7 days.
+def generate_weekly_chart(
+    rows: list[Any],
+    goals: dict[str, float] | None = None,
+    deficits: list[int | None] | None = None,
+) -> bytes | None:
+    """Generate a bar chart of daily steps, sleep, and optional weight / deficit panels.
 
     Args:
         rows: List of DailyMetrics ORM objects ordered by date.
         goals: Optional user goals for reference lines.
+        deficits: Optional per-day caloric deficit list (burned - eaten).
+                  Positive = deficit, negative = surplus, None = no food data.
 
     Returns:
         PNG image as bytes, or None if generation fails.
@@ -45,9 +51,10 @@ def generate_weekly_chart(rows: list[Any], goals: dict[str, float] | None = None
         weights = [getattr(r, "weight_kg", None) for r in rows]
         has_weight = any(w is not None for w in weights)
         weight_goal = (goals or {}).get("weight_kg")
+        has_deficit = deficits is not None and any(d is not None for d in deficits)
 
-        n_plots = 3 if has_weight else 2
-        fig_height = 9 if has_weight else 6
+        n_plots = 2 + (1 if has_weight else 0) + (1 if has_deficit else 0)
+        fig_height = 3 * n_plots
         fig, axes = plt.subplots(n_plots, 1, figsize=(8, fig_height), facecolor="#1a1a2e")
         fig.suptitle("Últimos 7 dias", color="white", fontsize=14, fontweight="bold")
 
@@ -73,12 +80,13 @@ def generate_weekly_chart(rows: list[Any], goals: dict[str, float] | None = None
         for spine in ax2.spines.values():
             spine.set_edgecolor("#444")
 
+        ax_idx = 2
         if has_weight:
-            ax3 = axes[2]
+            ax3 = axes[ax_idx]
+            ax_idx += 1
             # Plot weight as scatter + line for days with data
             w_dates = [d for d, w in zip(dates, weights) if w is not None]
             w_vals = [w for w in weights if w is not None]
-            w_indices = [i for i, w in enumerate(weights) if w is not None]
             ax3.plot(w_dates, w_vals, color="#4ecca3", marker="o", linewidth=2, markersize=6)
             if weight_goal is not None:
                 ax3.axhline(weight_goal, color="#f8b500", linestyle="--", linewidth=1.2, alpha=0.7, label=f"Objetivo: {weight_goal:.0f} kg")
@@ -90,6 +98,22 @@ def generate_weekly_chart(rows: list[Any], goals: dict[str, float] | None = None
             ax3.set_facecolor("#16213e")
             ax3.tick_params(colors="white")
             for spine in ax3.spines.values():
+                spine.set_edgecolor("#444")
+
+        if has_deficit:
+            ax_def = axes[ax_idx]
+            # Replace None with 0 for rendering; use grey for missing-data days
+            def_vals = [d if d is not None else 0 for d in deficits]
+            def_colors = [
+                "#888888" if d is None else ("#4ecca3" if d >= 0 else "#e94560")
+                for d in deficits
+            ]
+            ax_def.bar(dates, def_vals, color=def_colors, edgecolor="none")
+            ax_def.axhline(0, color="white", linestyle="--", linewidth=0.8, alpha=0.5)
+            ax_def.set_ylabel("Défice (kcal)", color="white")
+            ax_def.set_facecolor("#16213e")
+            ax_def.tick_params(colors="white")
+            for spine in ax_def.spines.values():
                 spine.set_edgecolor("#444")
 
         plt.tight_layout()

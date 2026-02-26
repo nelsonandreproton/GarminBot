@@ -14,6 +14,7 @@ from src.telegram.formatters import (
     format_nutrition_day,
     format_nutrition_summary,
     format_remaining_macros,
+    format_weekly_nutrition,
     format_weekly_report,
     format_workout_section,
 )
@@ -334,3 +335,58 @@ def test_format_workout_section_preserves_content():
 def test_format_workout_section_empty_string():
     result = format_workout_section("")
     assert "Treino de Hoje" in result
+
+
+# ------------------------------------------------------------------ #
+# format_weekly_nutrition — avg_deficit                               #
+# ------------------------------------------------------------------ #
+
+_WEEKLY_NUTRITION_BASE = {
+    "avg_calories": 1800.0,
+    "avg_protein": 120.0,
+    "avg_fat": 60.0,
+    "avg_carbs": 200.0,
+    "avg_fiber": 25.0,
+    "days_with_data": 5,
+}
+
+
+def test_format_weekly_nutrition_no_deficit_key():
+    """Without avg_deficit key, no deficit/surplus line is shown."""
+    result = format_weekly_nutrition(dict(_WEEKLY_NUTRITION_BASE))
+    assert "Nutrição" in result
+    assert "1800 kcal/dia" in result
+    assert "Dias com registo: 5" in result
+    assert "Défice" not in result
+    assert "Excedente" not in result
+
+
+def test_format_weekly_nutrition_deficit_none():
+    """avg_deficit=None → no deficit/surplus line."""
+    data = {**_WEEKLY_NUTRITION_BASE, "avg_deficit": None}
+    result = format_weekly_nutrition(data)
+    assert "Défice" not in result
+    assert "Excedente" not in result
+
+
+def test_format_weekly_nutrition_positive_deficit():
+    """Positive avg_deficit → ate less than burned → shows 'Défice médio'."""
+    data = {**_WEEKLY_NUTRITION_BASE, "avg_deficit": 350}
+    result = format_weekly_nutrition(data)
+    assert "Défice médio: -350 kcal/dia" in result
+    assert "Excedente" not in result
+
+
+def test_format_weekly_nutrition_zero_deficit():
+    """avg_deficit=0 is treated as deficit (edge case: balanced)."""
+    data = {**_WEEKLY_NUTRITION_BASE, "avg_deficit": 0}
+    result = format_weekly_nutrition(data)
+    assert "Défice médio: -0 kcal/dia" in result
+
+
+def test_format_weekly_nutrition_surplus():
+    """Negative avg_deficit → ate more than burned → shows 'Excedente médio'."""
+    data = {**_WEEKLY_NUTRITION_BASE, "avg_deficit": -200}
+    result = format_weekly_nutrition(data)
+    assert "Excedente médio: +200 kcal/dia" in result
+    assert "Défice" not in result
