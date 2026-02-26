@@ -879,3 +879,57 @@ def format_remaining_macros(
 def format_workout_section(workout_text: str) -> str:
     """Wrap LLM workout text with a Telegram-ready header."""
     return f"💪 *Treino de Hoje*\n\n{workout_text}"
+
+
+# Activity type key → Portuguese label + emoji
+_ACTIVITY_LABELS: dict[str, tuple[str, str]] = {
+    "strength_training": ("Musculação", "🏋️"),
+    "fitness_equipment": ("Ginásio", "🏋️"),
+    "running": ("Corrida", "🏃"),
+    "cycling": ("Ciclismo", "🚴"),
+    "walking": ("Caminhada", "🚶"),
+    "swimming": ("Natação", "🏊"),
+    "yoga": ("Yoga", "🧘"),
+    "cardio": ("Cardio", "❤️‍🔥"),
+    "hiit": ("HIIT", "⚡"),
+    "elliptical": ("Elíptica", "🔄"),
+    "rowing": ("Remo", "🚣"),
+    "pilates": ("Pilates", "🤸"),
+    "hiking": ("Caminhada/Trekking", "🥾"),
+    "tennis": ("Ténis", "🎾"),
+    "basketball": ("Basquetebol", "🏀"),
+    "football": ("Futebol", "⚽"),
+    "indoor_cycling": ("Ciclismo Interior", "🚴"),
+    "stair_climbing": ("Escadas", "🪜"),
+    "open_water_swimming": ("Natação em Águas Abertas", "🌊"),
+}
+
+
+def format_activity_sync(activities: list[dict], day_label: str) -> str:
+    """Format the result of /sync_atividades for Telegram.
+
+    Args:
+        activities: List of activity dicts with keys: name, type_key,
+                    duration_min, calories, distance_km.
+        day_label: Human-readable date label, e.g. "26/02/2026 (ontem)".
+    """
+    if not activities:
+        return f"ℹ️ Sem atividades registadas no Garmin para {day_label}."
+
+    lines = [f"✅ *Atividades sincronizadas — {day_label}*", ""]
+    for act in activities:
+        type_key = act.get("type_key", "unknown")
+        label, emoji = _ACTIVITY_LABELS.get(type_key, (act.get("name", type_key), "🏅"))
+        parts = []
+        if act.get("duration_min") is not None:
+            parts.append(f"{act['duration_min']} min")
+        if act.get("calories") is not None:
+            parts.append(f"{act['calories']} kcal")
+        if act.get("distance_km") is not None:
+            parts.append(f"{act['distance_km']} km")
+        detail = " | ".join(parts) if parts else "—"
+        lines.append(f"{emoji} *{label}* — {detail}")
+
+    lines.append("")
+    lines.append("💾 Guardado no registo de treino.")
+    return "\n".join(lines)

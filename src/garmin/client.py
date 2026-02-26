@@ -232,6 +232,44 @@ class GarminClient:
             logger.debug("Could not fetch weight for %s: %s", date_str, exc)
             return None
 
+    def get_activities_for_date(self, day: date) -> list[dict]:
+        """Fetch recorded activities for a specific date from Garmin Connect.
+
+        Returns a list of activity dicts with keys:
+            activity_id, name, type_key, duration_min, calories, distance_km.
+        Returns an empty list if no activities or on any error.
+        """
+        client = self._ensure_authenticated()
+        date_str = day.isoformat()
+        try:
+            raw = client.get_activities_by_date(date_str, date_str)
+            if not raw:
+                return []
+            result = []
+            for item in raw:
+                activity_id = item.get("activityId")
+                if activity_id is None:
+                    continue
+                type_key = (item.get("activityType") or {}).get("typeKey", "unknown")
+                duration_s = item.get("duration")
+                duration_min = round(duration_s / 60) if duration_s is not None else None
+                calories = item.get("calories")
+                calories = int(calories) if calories is not None else None
+                distance_m = item.get("distance")
+                distance_km = round(distance_m / 1000, 2) if distance_m else None
+                result.append({
+                    "activity_id": int(activity_id),
+                    "name": item.get("activityName") or type_key,
+                    "type_key": type_key,
+                    "duration_min": duration_min,
+                    "calories": calories,
+                    "distance_km": distance_km,
+                })
+            return result
+        except Exception as exc:
+            logger.debug("Could not fetch activities for %s: %s", date_str, exc)
+            return []
+
     def check_sleep_available(self, day: date) -> bool:
         """Check if completed sleep data exists for the given date.
 

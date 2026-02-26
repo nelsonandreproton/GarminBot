@@ -138,6 +138,23 @@ class TrainingEntry(Base):
         return f"<TrainingEntry date={self.date} description={self.description!r}>"
 
 
+class GarminActivity(Base):
+    """Auto-synced activity from Garmin Connect (deduplicated by garmin_activity_id)."""
+    __tablename__ = "garmin_activities"
+
+    garmin_activity_id = Column(Integer, primary_key=True)
+    date = Column(Date, nullable=False, index=True)
+    name = Column(String(200), nullable=False)
+    type_key = Column(String(50), nullable=True)
+    duration_min = Column(Integer, nullable=True)
+    calories = Column(Integer, nullable=True)
+    distance_km = Column(Float, nullable=True)
+    synced_at = Column(DateTime, default=lambda: datetime.now(UTC))
+
+    def __repr__(self) -> str:
+        return f"<GarminActivity id={self.garmin_activity_id} date={self.date} name={self.name!r}>"
+
+
 class WaistEntry(Base):
     """Records a waist circumference measurement for a given day."""
     __tablename__ = "waist_entries"

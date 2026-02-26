@@ -30,6 +30,7 @@ warnings.filterwarnings("ignore", message="per_message=False", category=PTBUserW
 from ..config import Config
 from ..database.repository import Repository
 from .formatters import (
+    format_activity_sync,
     format_daily_summary,
     format_error_message,
     format_food_confirmation,
@@ -1246,12 +1247,8 @@ class TelegramBot:
 
         training_minutes = int(self._repo.get_setting("gym_training_minutes") or "45")
 
-        # 4. Get training history (last 7 days)
-        history_entries = self._repo.get_recent_training(days=7)
-        training_history = [
-            {"date": str(e.date), "description": e.description}
-            for e in history_entries
-        ]
+        # 4. Get training history — combined manual + Garmin (last 7 days)
+        training_history = self._repo.get_training_summary_for_llm(days=7)
 
         # 5. Build yesterday's metrics for the workout generator
         yesterday = date.today() - timedelta(days=1)
@@ -1304,6 +1301,41 @@ class TelegramBot:
                 "⚠️ Não foi possível gerar a sugestão de treino. Tenta novamente mais tarde."
             )
 
+    async def _cmd_sync_atividades(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """/sync_atividades [hoje] — fetch Garmin activities and save to training log."""
+        if not self._auth_check(update) or _is_rate_limited(update.effective_chat.id):
+            return
+        if self._garmin_client is None:
+            await update.message.reply_text("Cliente Garmin não configurado.")
+            return
+
+        args = context.args or []
+        if args and args[0].lower() == "hoje":
+            target_day = date.today()
+            day_label = f"{target_day.strftime('%d/%m/%Y')} (hoje)"
+        else:
+            target_day = date.today() - timedelta(days=1)
+            day_label = f"{target_day.strftime('%d/%m/%Y')} (ontem)"
+
+        await update.message.reply_text(f"⏳ A buscar atividades de {day_label}...")
+
+        activities = self._garmin_client.get_activities_for_date(target_day)
+
+        if activities:
+            for act in activities:
+                self._repo.upsert_garmin_activity(
+                    activity_id=act["activity_id"],
+                    day=target_day,
+                    name=act["name"],
+                    type_key=act.get("type_key"),
+                    duration_min=act.get("duration_min"),
+                    calories=act.get("calories"),
+                    distance_km=act.get("distance_km"),
+                )
+
+        text = format_activity_sync(activities, day_label)
+        await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+
     # ------------------------------------------------------------------ #
     # Application lifecycle                                                #
     # ------------------------------------------------------------------ #
@@ -1332,6 +1364,7 @@ class TelegramBot:
         app.add_handler(CommandHandler("sync_treino", self._cmd_sync_treino))
         app.add_handler(CommandHandler("equipamento", self._cmd_equipamento))
         app.add_handler(CommandHandler("treinei", self._cmd_treinei))
+        app.add_handler(CommandHandler("sync_atividades", self._cmd_sync_atividades))
 
         # Nutrition conversation (text entry + barcode + meal presets)
         conv = ConversationHandler(
@@ -1386,6 +1419,7 @@ class TelegramBot:
             BotCommand("apagar", "Apagar último alimento registado"),
             BotCommand("preset", "Gerir presets de refeição (create/list/delete)"),
             BotCommand("sync_treino", "Sincronizar e gerar sugestão de treino"),
+            BotCommand("sync_atividades", "Importar atividades do Garmin (ex: /sync_atividades hoje)"),
             BotCommand("equipamento", "Ver ou configurar equipamento de ginásio"),
             BotCommand("treinei", "Registar treino feito (ex: /treinei Bench 4x8)"),
         ]

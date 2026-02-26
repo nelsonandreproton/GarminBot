@@ -10,7 +10,7 @@ from typing import Any, Generator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from .models import Base, DailyMetrics, FoodEntry, MealPreset, MealPresetItem, SyncLog, TrainingEntry, UserGoal, UserSetting, WaistEntry
+from .models import Base, DailyMetrics, FoodEntry, GarminActivity, MealPreset, MealPresetItem, SyncLog, TrainingEntry, UserGoal, UserSetting, WaistEntry
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +71,9 @@ class Repository:
             if "waist_entries" not in table_names:
                 WaistEntry.__table__.create(self._engine)
                 logger.info("Migration: created table waist_entries")
+            if "garmin_activities" not in table_names:
+                GarminActivity.__table__.create(self._engine)
+                logger.info("Migration: created table garmin_activities")
 
     @contextmanager
     def _session(self) -> Generator[Session, None, None]:
@@ -640,3 +643,92 @@ class Repository:
                 .order_by(TrainingEntry.date.desc())
                 .all()
             )
+
+    # ------------------------------------------------------------------ #
+    # Garmin activities (auto-sync)                                       #
+    # ------------------------------------------------------------------ #
+
+    def upsert_garmin_activity(
+        self,
+        activity_id: int,
+        day: date,
+        name: str,
+        type_key: str | None,
+        duration_min: int | None,
+        calories: int | None,
+        distance_km: float | None,
+    ) -> None:
+        """Insert or update a Garmin activity (keyed by activity_id — no duplicates)."""
+        with self._session() as session:
+            existing = session.query(GarminActivity).filter_by(
+                garmin_activity_id=activity_id
+            ).first()
+            if existing:
+                existing.name = name
+                existing.type_key = type_key
+                existing.duration_min = duration_min
+                existing.calories = calories
+                existing.distance_km = distance_km
+                existing.synced_at = datetime.now(UTC)
+            else:
+                session.add(GarminActivity(
+                    garmin_activity_id=activity_id,
+                    date=day,
+                    name=name,
+                    type_key=type_key,
+                    duration_min=duration_min,
+                    calories=calories,
+                    distance_km=distance_km,
+                ))
+        logger.debug("Garmin activity %d upserted for %s", activity_id, day)
+
+    def get_garmin_activities_for_date(self, day: date) -> list[GarminActivity]:
+        """Return all Garmin activities for a specific date."""
+        with self._session() as session:
+            return (
+                session.query(GarminActivity)
+                .filter(GarminActivity.date == day)
+                .order_by(GarminActivity.garmin_activity_id)
+                .all()
+            )
+
+    def get_training_summary_for_llm(self, days: int = 7) -> list[dict]:
+        """Return combined manual + Garmin training entries for the last N days.
+
+        Returns a list of {date, description} dicts, one per day that has any
+        training data, ordered by date descending.
+        """
+        cutoff = date.today() - timedelta(days=days)
+        result: dict[date, list[str]] = {}
+
+        with self._session() as session:
+            # Manual entries
+            manual = (
+                session.query(TrainingEntry)
+                .filter(TrainingEntry.date > cutoff)
+                .all()
+            )
+            for entry in manual:
+                result.setdefault(entry.date, []).append(entry.description)
+
+            # Garmin activities
+            garmin = (
+                session.query(GarminActivity)
+                .filter(GarminActivity.date > cutoff)
+                .order_by(GarminActivity.garmin_activity_id)
+                .all()
+            )
+            for act in garmin:
+                parts = [act.name]
+                if act.duration_min is not None:
+                    parts.append(f"{act.duration_min}min")
+                if act.calories is not None:
+                    parts.append(f"{act.calories}kcal")
+                if act.distance_km is not None:
+                    parts.append(f"{act.distance_km}km")
+                result.setdefault(act.date, []).append(" ".join(parts))
+
+        return [
+            {"date": str(d), "description": " | ".join(descs)}
+            for d, descs in sorted(result.items(), reverse=True)
+        ]
