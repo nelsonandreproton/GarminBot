@@ -10,7 +10,7 @@ from typing import Any, Generator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from .models import Base, DailyMetrics, FoodEntry, MealPreset, MealPresetItem, SyncLog, TrainingEntry, UserGoal, UserSetting
+from .models import Base, DailyMetrics, FoodEntry, MealPreset, MealPresetItem, SyncLog, TrainingEntry, UserGoal, UserSetting, WaistEntry
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +68,9 @@ class Repository:
             if "training_entries" not in table_names:
                 TrainingEntry.__table__.create(self._engine)
                 logger.info("Migration: created table training_entries")
+            if "waist_entries" not in table_names:
+                WaistEntry.__table__.create(self._engine)
+                logger.info("Migration: created table waist_entries")
 
     @contextmanager
     def _session(self) -> Generator[Session, None, None]:
@@ -368,6 +371,43 @@ class Repository:
             "max_weight": max(weights),
             "entries_count": len(weight_rows),
         }
+
+    def get_recent_weight_records(self, limit: int = 10) -> list[tuple[date, float]]:
+        """Return the last `limit` weight records as (date, kg) pairs, newest first."""
+        with self._session() as session:
+            rows = (
+                session.query(DailyMetrics.date, DailyMetrics.weight_kg)
+                .filter(DailyMetrics.weight_kg.isnot(None))
+                .order_by(DailyMetrics.date.desc())
+                .limit(limit)
+                .all()
+            )
+            return [(r.date, r.weight_kg) for r in rows]
+
+    # ------------------------------------------------------------------ #
+    # Waist operations                                                      #
+    # ------------------------------------------------------------------ #
+
+    def save_waist_entry(self, day: date, waist_cm: float) -> None:
+        """Save or update waist circumference measurement for a given day."""
+        with self._session() as session:
+            existing = session.query(WaistEntry).filter_by(date=day).first()
+            if existing:
+                existing.waist_cm = waist_cm
+            else:
+                session.add(WaistEntry(date=day, waist_cm=waist_cm))
+        logger.debug("Saved waist measurement %.1f cm for %s", waist_cm, day)
+
+    def get_recent_waist_records(self, limit: int = 10) -> list[tuple[date, float]]:
+        """Return the last `limit` waist records as (date, cm) pairs, newest first."""
+        with self._session() as session:
+            rows = (
+                session.query(WaistEntry.date, WaistEntry.waist_cm)
+                .order_by(WaistEntry.date.desc())
+                .limit(limit)
+                .all()
+            )
+            return [(r.date, r.waist_cm) for r in rows]
 
     # ------------------------------------------------------------------ #
     # Nutrition operations                                                  #

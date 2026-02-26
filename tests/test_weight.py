@@ -17,6 +17,7 @@ from src.garmin.client import (
 from src.telegram.formatters import (
     format_daily_summary,
     format_goals,
+    format_waist_status,
     format_weekly_report,
     format_weekly_weight,
     format_weight_status,
@@ -348,7 +349,6 @@ def test_format_weight_status_with_weekly_stats():
     text = format_weight_status(78.5, date(2026, 2, 15), weight_stats=stats)
     assert "79.0 kg" in text
     assert "-0.5 kg" in text
-    assert "3" in text
 
 
 def test_format_goals_with_weight():
@@ -487,3 +487,145 @@ def test_weekly_chart_with_weight_goal():
     result = generate_weekly_chart(rows, goals=goals)
     assert result is not None
     assert len(result) > 0
+
+
+# ------------------------------------------------------------------ #
+# format_weight_status: recent_records                                #
+# ------------------------------------------------------------------ #
+
+def test_format_weight_status_with_recent_records():
+    records = [
+        (date(2026, 2, 25), 78.5),
+        (date(2026, 2, 22), 79.0),
+        (date(2026, 2, 20), 79.5),
+    ]
+    text = format_weight_status(78.5, date(2026, 2, 25), recent_records=records)
+    assert "ltimos registos" in text
+    assert "25/02/2026" in text
+    assert "78.5 kg" in text
+    assert "22/02/2026" in text
+    assert "79.0 kg" in text
+
+
+def test_format_weight_status_no_recent_records():
+    text = format_weight_status(78.5, date(2026, 2, 25), recent_records=[])
+    assert "ltimos registos" not in text
+    assert "78.5 kg" in text
+
+
+# ------------------------------------------------------------------ #
+# Repository: get_recent_weight_records                               #
+# ------------------------------------------------------------------ #
+
+def test_get_recent_weight_records_empty(repo):
+    result = repo.get_recent_weight_records()
+    assert result == []
+
+
+def test_get_recent_weight_records_returns_newest_first(repo):
+    repo.save_manual_weight(date(2026, 2, 10), 80.0)
+    repo.save_manual_weight(date(2026, 2, 15), 79.0)
+    repo.save_manual_weight(date(2026, 2, 20), 78.5)
+    result = repo.get_recent_weight_records()
+    assert result[0] == (date(2026, 2, 20), 78.5)
+    assert result[1] == (date(2026, 2, 15), 79.0)
+    assert result[2] == (date(2026, 2, 10), 80.0)
+
+
+def test_get_recent_weight_records_respects_limit(repo):
+    for i in range(15):
+        repo.save_manual_weight(date(2026, 1, 1) + timedelta(days=i), 80.0 - i * 0.1)
+    result = repo.get_recent_weight_records(limit=5)
+    assert len(result) == 5
+
+
+def test_get_recent_weight_records_skips_null(repo):
+    repo.save_daily_metrics(date(2026, 2, 10), {"steps": 8000, "garmin_sync_success": True})
+    repo.save_manual_weight(date(2026, 2, 15), 78.5)
+    result = repo.get_recent_weight_records()
+    assert len(result) == 1
+    assert result[0][1] == 78.5
+
+
+# ------------------------------------------------------------------ #
+# Repository: waist operations                                        #
+# ------------------------------------------------------------------ #
+
+def test_save_waist_entry_new(repo):
+    repo.save_waist_entry(date(2026, 2, 15), 95.0)
+    records = repo.get_recent_waist_records()
+    assert len(records) == 1
+    assert records[0] == (date(2026, 2, 15), 95.0)
+
+
+def test_save_waist_entry_update_same_day(repo):
+    repo.save_waist_entry(date(2026, 2, 15), 95.0)
+    repo.save_waist_entry(date(2026, 2, 15), 94.5)
+    records = repo.get_recent_waist_records()
+    assert len(records) == 1
+    assert records[0][1] == 94.5
+
+
+def test_get_recent_waist_records_empty(repo):
+    assert repo.get_recent_waist_records() == []
+
+
+def test_get_recent_waist_records_newest_first(repo):
+    repo.save_waist_entry(date(2026, 2, 10), 96.0)
+    repo.save_waist_entry(date(2026, 2, 20), 95.0)
+    records = repo.get_recent_waist_records()
+    assert records[0] == (date(2026, 2, 20), 95.0)
+    assert records[1] == (date(2026, 2, 10), 96.0)
+
+
+def test_get_recent_waist_records_respects_limit(repo):
+    for i in range(12):
+        repo.save_waist_entry(date(2026, 1, 1) + timedelta(days=i), 95.0 - i * 0.1)
+    result = repo.get_recent_waist_records(limit=5)
+    assert len(result) == 5
+
+
+# ------------------------------------------------------------------ #
+# format_waist_status                                                 #
+# ------------------------------------------------------------------ #
+
+def test_format_waist_status_empty():
+    text = format_waist_status([])
+    assert "Sem registos" in text
+    assert "barriga" in text.lower()
+
+
+def test_format_waist_status_single_record():
+    text = format_waist_status([(date(2026, 2, 25), 95.0)])
+    assert "95.0 cm" in text
+    assert "25/02/2026" in text
+
+
+def test_format_waist_status_multiple_records():
+    records = [
+        (date(2026, 2, 25), 94.0),
+        (date(2026, 2, 18), 94.5),
+        (date(2026, 2, 10), 95.0),
+    ]
+    text = format_waist_status(records)
+    assert "94.0 cm" in text
+    assert "95.0 cm" in text
+    assert "25/02/2026" in text
+
+
+def test_format_waist_status_shows_variation():
+    records = [
+        (date(2026, 2, 25), 94.0),
+        (date(2026, 2, 10), 95.5),
+    ]
+    text = format_waist_status(records)
+    assert "-1.5 cm" in text
+
+
+def test_format_waist_status_positive_variation():
+    records = [
+        (date(2026, 2, 25), 96.0),
+        (date(2026, 2, 10), 95.0),
+    ]
+    text = format_waist_status(records)
+    assert "+1.0 cm" in text

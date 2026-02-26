@@ -38,6 +38,7 @@ from .formatters import (
     format_monthly_report,
     format_nutrition_day,
     format_status,
+    format_waist_status,
     format_weekly_report,
     format_weight_status,
     format_workout_section,
@@ -647,12 +648,41 @@ class TelegramBot:
             )
             return
 
-        # Show current weight status
+        # Show current weight status + last 10 records
         yesterday = date.today() - timedelta(days=1)
         current_weight, current_date = self._repo.get_latest_weight()
         weight_stats = self._repo.get_weekly_weight_stats(yesterday)
         goals = self._repo.get_goals()
-        text = format_weight_status(current_weight, current_date, weight_stats or None, goals)
+        recent_records = self._repo.get_recent_weight_records(10)
+        text = format_weight_status(current_weight, current_date, weight_stats or None, goals, recent_records)
+        await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+
+    async def _cmd_barriga(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """/barriga [valor] — view or register waist circumference in cm."""
+        if not self._auth_check(update) or _is_rate_limited(update.effective_chat.id):
+            return
+        args = context.args or []
+
+        if args:
+            try:
+                cm = float(args[0].replace(",", "."))
+                if not 40 < cm < 200:
+                    await update.message.reply_text("Valor deve estar entre 40 e 200 cm.")
+                    return
+            except ValueError:
+                await update.message.reply_text("Valor inválido. Uso: /barriga 95.5")
+                return
+            today = date.today()
+            self._repo.save_waist_entry(today, cm)
+            await update.message.reply_text(
+                f"✅ Barriga registada: *{cm:.1f} cm* ({today.strftime('%d/%m/%Y')})",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return
+
+        # Show last 10 records
+        records = self._repo.get_recent_waist_records(10)
+        text = format_waist_status(records)
         await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
 
     # ------------------------------------------------------------------ #
@@ -1250,6 +1280,10 @@ class TelegramBot:
 
         # 6. Generate and send workout
         await update.message.reply_text("💪 A gerar sugestão de treino...")
+        weight_history = self._repo.get_recent_weight_records(10)
+        waist_history = self._repo.get_recent_waist_records(10)
+        goals = self._repo.get_goals()
+        weight_goal = goals.get("weight_kg")
         from ..training.recommender import generate_workout
         workout_text = generate_workout(
             metrics=metrics,
@@ -1258,6 +1292,9 @@ class TelegramBot:
             training_minutes=training_minutes,
             training_history=training_history,
             api_key=self._config.groq_api_key,
+            weight_history=weight_history or None,
+            waist_history=waist_history or None,
+            weight_goal=weight_goal,
         )
 
         if workout_text:
@@ -1288,6 +1325,7 @@ class TelegramBot:
         app.add_handler(CommandHandler("backfill", self._cmd_backfill))
         app.add_handler(CommandHandler("objetivo", self._cmd_objetivo))
         app.add_handler(CommandHandler("peso", self._cmd_peso))
+        app.add_handler(CommandHandler("barriga", self._cmd_barriga))
         app.add_handler(CommandHandler("nutricao", self._cmd_nutricao))
         app.add_handler(CommandHandler("dieta", self._cmd_nutricao))
         app.add_handler(CommandHandler("apagar", self._cmd_apagar))
@@ -1340,6 +1378,7 @@ class TelegramBot:
             BotCommand("exportar", "Exportar dados em CSV"),
             BotCommand("objetivo", "Ver ou definir objetivos"),
             BotCommand("peso", "Ver ou registar peso (ex: /peso 78.5)"),
+            BotCommand("barriga", "Ver ou registar perímetro abdominal (ex: /barriga 95.5)"),
             BotCommand("status", "Estado do bot"),
             BotCommand("ajuda", "Lista de comandos"),
             BotCommand("comi", "Registar alimento ou preset (ex: /comi Lanche)"),

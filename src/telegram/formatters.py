@@ -459,14 +459,15 @@ def format_weight_status(
     current_date: date | None,
     weight_stats: dict[str, Any] | None = None,
     goals: dict[str, float] | None = None,
+    recent_records: list[tuple] | None = None,
 ) -> str:
-    """Format the /peso command response."""
+    """Format the /peso command response with weekly stats and last 10 records."""
     if current_weight is None:
         return "⚖️ *Peso*\n\nSem registos de peso. Usa `/peso 78.5` para registar."
 
     day_str = current_date.strftime("%d/%m") if current_date else "—"
     lines = [
-        "⚖️ *Peso — últimos 7 dias*",
+        "⚖️ *Peso — resumo*",
         "",
         f"• Atual: {current_weight:.1f} kg ({day_str})",
     ]
@@ -478,19 +479,45 @@ def format_weight_status(
             sign = "+" if delta > 0 else ""
             lines.append(f"• 7 dias atrás: {prev:.1f} kg")
             lines.append(f"• Variação: {sign}{delta:.1f} kg")
-        entries = weight_stats.get("entries_count", 0)
-        if entries > 1:
-            lines.append(f"• Registos esta semana: {entries}")
 
     weight_goal = (goals or {}).get("weight_kg")
     if weight_goal is not None:
         diff = current_weight - weight_goal
         if abs(diff) < 0.1:
-            lines.append(f"• Objetivo: {weight_goal:.1f} kg — atingido!")
+            lines.append(f"• Objetivo: {weight_goal:.1f} kg — atingido! 🎯")
         elif diff > 0:
             lines.append(f"• Objetivo: {weight_goal:.1f} kg (faltam {diff:.1f} kg)")
         else:
             lines.append(f"• Objetivo: {weight_goal:.1f} kg ({abs(diff):.1f} kg abaixo)")
+
+    if recent_records:
+        lines.append("")
+        lines.append("📋 *Últimos registos:*")
+        for rec_date, rec_kg in recent_records:
+            lines.append(f"  {rec_date.strftime('%d/%m/%Y')} — {rec_kg:.1f} kg")
+
+    return "\n".join(lines)
+
+
+def format_waist_status(
+    recent_records: list[tuple],
+) -> str:
+    """Format the /barriga command response."""
+    if not recent_records:
+        return "📏 *Perímetro Abdominal*\n\nSem registos. Usa `/barriga 95.5` para registar (em cm)."
+
+    lines = ["📏 *Perímetro Abdominal — últimos registos*", ""]
+    first_cm = recent_records[-1][1] if len(recent_records) > 1 else None
+    latest_cm = recent_records[0][1]
+
+    for rec_date, rec_cm in recent_records:
+        lines.append(f"  {rec_date.strftime('%d/%m/%Y')} — {rec_cm:.1f} cm")
+
+    if first_cm is not None:
+        delta = round(latest_cm - first_cm, 1)
+        sign = "+" if delta > 0 else ""
+        lines.append("")
+        lines.append(f"• Variação no período: {sign}{delta:.1f} cm")
 
     return "\n".join(lines)
 

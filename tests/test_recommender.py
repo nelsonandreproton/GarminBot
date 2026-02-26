@@ -80,6 +80,30 @@ class TestBuildUserPrompt:
         prompt = _build_user_prompt(_make_metrics(), None, "halteres", 45, [])
         assert "2026-02-25" in prompt
 
+    def test_weight_history_shows_in_prompt(self):
+        from datetime import date as _date
+        wh = [(_date(2026, 2, 25), 81.2), (_date(2026, 2, 20), 82.0)]
+        prompt = _build_user_prompt(_make_metrics(), None, "halteres", 45, [], weight_history=wh)
+        assert "81.2 kg" in prompt
+        assert "82.0 kg" in prompt
+
+    def test_waist_history_shows_in_prompt(self):
+        from datetime import date as _date
+        wh = [(_date(2026, 2, 25), 94.5)]
+        prompt = _build_user_prompt(_make_metrics(), None, "halteres", 45, [], waist_history=wh)
+        assert "94.5 cm" in prompt
+
+    def test_weight_goal_shows_in_prompt(self):
+        from datetime import date as _date
+        wh = [(_date(2026, 2, 25), 81.0)]
+        prompt = _build_user_prompt(_make_metrics(), None, "halteres", 45, [],
+                                    weight_history=wh, weight_goal=75.0)
+        assert "75.0 kg" in prompt
+
+    def test_no_history_shows_sem_registos(self):
+        prompt = _build_user_prompt(_make_metrics(), None, "halteres", 45, [])
+        assert "Sem registos" in prompt
+
 
 # ------------------------------------------------------------------ #
 # generate_workout                                                     #
@@ -165,3 +189,61 @@ class TestGenerateWorkout:
         messages = call_kwargs.kwargs["messages"]
         user_content = next(m["content"] for m in messages if m["role"] == "user")
         assert "Deadlift 4x5" in user_content
+
+    def test_weight_history_in_prompt(self):
+        from datetime import date as _date
+        weight_history = [(_date(2026, 2, 25), 81.2), (_date(2026, 2, 22), 81.5)]
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value.choices[0].message.content = "ok"
+        with patch("src.training.recommender.Groq", return_value=mock_client):
+            generate_workout(
+                _make_metrics(), None, "halteres", 45, [], "fake",
+                weight_history=weight_history,
+            )
+        call_kwargs = mock_client.chat.completions.create.call_args
+        messages = call_kwargs.kwargs["messages"]
+        user_content = next(m["content"] for m in messages if m["role"] == "user")
+        assert "81.2 kg" in user_content
+        assert "81.5 kg" in user_content
+
+    def test_waist_history_in_prompt(self):
+        from datetime import date as _date
+        waist_history = [(_date(2026, 2, 25), 94.0), (_date(2026, 2, 10), 95.5)]
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value.choices[0].message.content = "ok"
+        with patch("src.training.recommender.Groq", return_value=mock_client):
+            generate_workout(
+                _make_metrics(), None, "halteres", 45, [], "fake",
+                waist_history=waist_history,
+            )
+        call_kwargs = mock_client.chat.completions.create.call_args
+        messages = call_kwargs.kwargs["messages"]
+        user_content = next(m["content"] for m in messages if m["role"] == "user")
+        assert "94.0 cm" in user_content
+        assert "95.5 cm" in user_content
+
+    def test_weight_goal_in_prompt(self):
+        from datetime import date as _date
+        weight_history = [(_date(2026, 2, 25), 81.0)]
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value.choices[0].message.content = "ok"
+        with patch("src.training.recommender.Groq", return_value=mock_client):
+            generate_workout(
+                _make_metrics(), None, "halteres", 45, [], "fake",
+                weight_history=weight_history,
+                weight_goal=75.0,
+            )
+        call_kwargs = mock_client.chat.completions.create.call_args
+        messages = call_kwargs.kwargs["messages"]
+        user_content = next(m["content"] for m in messages if m["role"] == "user")
+        assert "75.0 kg" in user_content
+
+    def test_no_weight_or_waist_history_shows_sem_registos(self):
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.return_value.choices[0].message.content = "ok"
+        with patch("src.training.recommender.Groq", return_value=mock_client):
+            generate_workout(_make_metrics(), None, "halteres", 45, [], "fake")
+        call_kwargs = mock_client.chat.completions.create.call_args
+        messages = call_kwargs.kwargs["messages"]
+        user_content = next(m["content"] for m in messages if m["role"] == "user")
+        assert "Sem registos" in user_content

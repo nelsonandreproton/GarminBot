@@ -136,3 +136,16 @@ class TrainingEntry(Base):
 
     def __repr__(self) -> str:
         return f"<TrainingEntry date={self.date} description={self.description!r}>"
+
+
+class WaistEntry(Base):
+    """Records a waist circumference measurement for a given day."""
+    __tablename__ = "waist_entries"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date = Column(Date, unique=True, nullable=False, index=True)
+    waist_cm = Column(Float, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+
+    def __repr__(self) -> str:
+        return f"<WaistEntry date={self.date} waist_cm={self.waist_cm}>"

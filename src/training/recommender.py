@@ -14,6 +14,10 @@ _MODEL = "llama-3.3-70b-versatile"
 _SYSTEM_PROMPT = """És um personal trainer especializado em perda de gordura e recomposição corporal.
 Geras treinos de ginásio em português europeu, curtos e acionáveis.
 
+OBJETIVO PRINCIPAL DO UTILIZADOR: Perda de gordura e redução do perímetro abdominal.
+Prioriza exercícios compostos e metabolicamente intensos. Inclui sempre trabalho de core.
+Usa o histórico de peso e barriga para adaptar o discurso motivacional (💡 nota final).
+
 REGRAS:
 1. Estrutura cada treino em torno dos 5 padrões de movimento fundamentais:
    - SQUAT (agachamento): goblet squat, Bulgarian split squat, lunges, dumbbell squat
@@ -54,7 +58,7 @@ REGRAS:
    [EMOJI] [PADRÃO] — [exercício]
    [séries] x [reps/tempo] | Descanso: [tempo]
 
-   💡 [Uma nota curta sobre intensidade/recuperação, se relevante]
+   💡 [Uma nota curta sobre intensidade/recuperação ou progresso de peso/barriga, se relevante]
 
 10. Sê conciso. Não expliques o porquê de cada escolha. O utilizador quer um plano para seguir."""
 
@@ -65,6 +69,9 @@ def _build_user_prompt(
     equipment: str,
     training_minutes: int,
     training_history: list[dict],
+    weight_history: list[tuple[date, float]] | None = None,
+    waist_history: list[tuple[date, float]] | None = None,
+    weight_goal: float | None = None,
 ) -> str:
     """Build the user-facing prompt with concrete data from yesterday."""
     day = metrics.get("date", "?")
@@ -105,6 +112,28 @@ def _build_user_prompt(
     else:
         history_lines = "Nenhum treino registado"
 
+    # Weight history section
+    if weight_history:
+        weight_hist_lines = "\n".join(
+            f"• {d.strftime('%d/%m/%Y')}: {kg:.1f} kg" for d, kg in weight_history
+        )
+        if weight_goal is not None:
+            latest_kg = weight_history[0][1]
+            diff = round(latest_kg - weight_goal, 1)
+            weight_hist_lines += f"\nObjetivo: {weight_goal:.1f} kg (faltam {diff:.1f} kg)" if diff > 0 else f"\nObjetivo: {weight_goal:.1f} kg — atingido!"
+        weight_section = f"HISTÓRICO DE PESO (últimos registos, do mais recente):\n{weight_hist_lines}"
+    else:
+        weight_section = "HISTÓRICO DE PESO: Sem registos"
+
+    # Waist history section
+    if waist_history:
+        waist_hist_lines = "\n".join(
+            f"• {d.strftime('%d/%m/%Y')}: {cm:.1f} cm" for d, cm in waist_history
+        )
+        waist_section = f"HISTÓRICO DE BARRIGA (últimos registos, do mais recente):\n{waist_hist_lines}"
+    else:
+        waist_section = "HISTÓRICO DE BARRIGA: Sem registos"
+
     return (
         f"DADOS DE ONTEM ({day}):\n\n"
         f"😴 Sono: {sleep_str}, score {sleep_score_str}, qualidade: {sleep_quality}\n"
@@ -113,6 +142,8 @@ def _build_user_prompt(
         f"🔋 Body battery: {bb_str}\n"
         f"⚖️ Peso: {weight_str}\n"
         f"🍽 Nutrição: {nut_str}\n\n"
+        f"{weight_section}\n\n"
+        f"{waist_section}\n\n"
         f"EQUIPAMENTO DISPONÍVEL:\n{equipment}\n\n"
         f"TEMPO DISPONÍVEL: {training_minutes} minutos\n\n"
         f"TREINOS ÚLTIMOS 7 DIAS:\n{history_lines}\n\n"
@@ -127,6 +158,9 @@ def generate_workout(
     training_minutes: int,
     training_history: list[dict],
     api_key: str,
+    weight_history: list[tuple[date, float]] | None = None,
+    waist_history: list[tuple[date, float]] | None = None,
+    weight_goal: float | None = None,
 ) -> str | None:
     """Generate a personalised workout via Groq.
 
@@ -137,13 +171,17 @@ def generate_workout(
         training_minutes: Available training time in minutes.
         training_history: List of {date, description} dicts from last 7 days.
         api_key: Groq API key.
+        weight_history: Last N (date, kg) pairs, newest first. Optional.
+        waist_history: Last N (date, cm) pairs, newest first. Optional.
+        weight_goal: Target weight in kg, or None if not set.
 
     Returns:
         Formatted workout text ready to send via Telegram, or None on failure.
     """
     try:
         user_prompt = _build_user_prompt(
-            metrics, nutrition, equipment, training_minutes, training_history
+            metrics, nutrition, equipment, training_minutes, training_history,
+            weight_history, waist_history, weight_goal,
         )
         client = Groq(api_key=api_key)
         response = client.chat.completions.create(
