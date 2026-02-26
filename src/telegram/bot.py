@@ -250,7 +250,7 @@ class TelegramBot:
         await self.send_daily_summary(metrics, show_sleep=False)
 
     async def _cmd_ontem(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """/ontem — yesterday's full summary."""
+        """/ontem — yesterday's full summary (same as /hoje but with sleep)."""
         if not self._auth_check(update) or _is_rate_limited(update.effective_chat.id):
             return
         yesterday = date.today() - timedelta(days=1)
@@ -266,10 +266,22 @@ class TelegramBot:
             "steps": row.steps,
             "active_calories": row.active_calories,
             "resting_calories": row.resting_calories,
+            "total_calories": row.total_calories,
+            "resting_heart_rate": row.resting_heart_rate,
+            "avg_stress": row.avg_stress,
+            "body_battery_high": row.body_battery_high,
+            "body_battery_low": row.body_battery_low,
+            "weight_kg": row.weight_kg,
         }
-        weekly = self._repo.get_weekly_stats(yesterday)
-        text = format_daily_summary(metrics, weekly_stats=weekly)
-        await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+        nutrition = self._repo.get_daily_nutrition(yesterday)
+        if nutrition.get("entry_count", 0) > 0:
+            metrics["nutrition"] = {
+                **nutrition,
+                "active_calories": metrics.get("active_calories"),
+                "resting_calories": metrics.get("resting_calories"),
+                "total_calories": metrics.get("total_calories"),
+            }
+        await self.send_daily_summary(metrics)
 
     async def _cmd_semana(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """/semana — weekly report for the previous Mon–Sun week."""
