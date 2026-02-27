@@ -116,6 +116,33 @@ def _parse_date_prefix(args: list[str]) -> tuple[date, list[str]]:
     return today, args
 
 
+def _row_to_metrics(row: Any) -> dict[str, Any]:
+    """Convert a DailyMetrics ORM row to a flat dict for formatters."""
+    return {
+        "date": row.date,
+        "sleep_hours": row.sleep_hours,
+        "sleep_score": row.sleep_score,
+        "sleep_quality": row.sleep_quality,
+        "sleep_deep_min": getattr(row, "sleep_deep_min", None),
+        "sleep_light_min": getattr(row, "sleep_light_min", None),
+        "sleep_rem_min": getattr(row, "sleep_rem_min", None),
+        "sleep_awake_min": getattr(row, "sleep_awake_min", None),
+        "steps": row.steps,
+        "active_calories": row.active_calories,
+        "resting_calories": row.resting_calories,
+        "total_calories": row.total_calories,
+        "floors_ascended": getattr(row, "floors_ascended", None),
+        "intensity_moderate_min": getattr(row, "intensity_moderate_min", None),
+        "intensity_vigorous_min": getattr(row, "intensity_vigorous_min", None),
+        "resting_heart_rate": row.resting_heart_rate,
+        "avg_stress": row.avg_stress,
+        "body_battery_high": row.body_battery_high,
+        "body_battery_low": row.body_battery_low,
+        "spo2_avg": getattr(row, "spo2_avg", None),
+        "weight_kg": row.weight_kg,
+    }
+
+
 def _on_send_retry(retry_state) -> None:
     logger.warning("Telegram send attempt %d failed: %s", retry_state.attempt_number, retry_state.outcome.exception())
 
@@ -272,21 +299,7 @@ class TelegramBot:
         if row is None:
             await update.message.reply_text("Sem dados para ontem. Tenta /sync primeiro.")
             return
-        metrics = {
-            "date": row.date,
-            "sleep_hours": row.sleep_hours,
-            "sleep_score": row.sleep_score,
-            "sleep_quality": row.sleep_quality,
-            "steps": row.steps,
-            "active_calories": row.active_calories,
-            "resting_calories": row.resting_calories,
-            "total_calories": row.total_calories,
-            "resting_heart_rate": row.resting_heart_rate,
-            "avg_stress": row.avg_stress,
-            "body_battery_high": row.body_battery_high,
-            "body_battery_low": row.body_battery_low,
-            "weight_kg": row.weight_kg,
-        }
+        metrics = _row_to_metrics(row)
         nutrition = self._repo.get_daily_nutrition(yesterday)
         if nutrition.get("entry_count", 0) > 0:
             metrics["nutrition"] = {
@@ -385,21 +398,7 @@ class TelegramBot:
             )
             self._repo.log_report_sent()
             return
-        metrics = {
-            "date": row.date,
-            "sleep_hours": row.sleep_hours,
-            "sleep_score": row.sleep_score,
-            "sleep_quality": row.sleep_quality,
-            "steps": row.steps,
-            "active_calories": row.active_calories,
-            "resting_calories": row.resting_calories,
-            "total_calories": row.total_calories,
-            "resting_heart_rate": row.resting_heart_rate,
-            "avg_stress": row.avg_stress,
-            "body_battery_high": row.body_battery_high,
-            "body_battery_low": row.body_battery_low,
-            "weight_kg": row.weight_kg,
-        }
+        metrics = _row_to_metrics(row)
         nutrition = self._repo.get_daily_nutrition(yesterday)
         if nutrition.get("entry_count", 0) > 0:
             metrics["nutrition"] = {
@@ -504,13 +503,7 @@ class TelegramBot:
         if row is None:
             await update.message.reply_text(f"Sem dados para {target.strftime('%d/%m/%Y')}. Tenta /backfill.")
             return
-        metrics = {
-            "date": row.date, "sleep_hours": row.sleep_hours, "sleep_score": row.sleep_score,
-            "sleep_quality": row.sleep_quality, "steps": row.steps,
-            "active_calories": row.active_calories, "resting_calories": row.resting_calories,
-            "resting_heart_rate": row.resting_heart_rate, "avg_stress": row.avg_stress,
-            "body_battery_high": row.body_battery_high, "body_battery_low": row.body_battery_low,
-        }
+        metrics = _row_to_metrics(row)
         await update.message.reply_text(format_daily_summary(metrics), parse_mode=ParseMode.MARKDOWN)
 
     async def _cmd_exportar(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1371,21 +1364,7 @@ class TelegramBot:
             # Already handled by _send_yesterday_report; nothing to generate
             return
 
-        metrics = {
-            "date": row.date,
-            "sleep_hours": row.sleep_hours,
-            "sleep_score": row.sleep_score,
-            "sleep_quality": row.sleep_quality,
-            "steps": row.steps,
-            "active_calories": row.active_calories,
-            "resting_calories": row.resting_calories,
-            "total_calories": row.total_calories,
-            "resting_heart_rate": row.resting_heart_rate,
-            "avg_stress": row.avg_stress,
-            "body_battery_high": row.body_battery_high,
-            "body_battery_low": row.body_battery_low,
-            "weight_kg": row.weight_kg,
-        }
+        metrics = _row_to_metrics(row)
         nutrition_totals = self._repo.get_daily_nutrition(yesterday)
         nutrition = nutrition_totals if nutrition_totals.get("entry_count", 0) > 0 else None
 

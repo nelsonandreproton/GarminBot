@@ -25,6 +25,10 @@ class SleepData:
     hours: float | None
     score: int | None
     quality: str | None
+    deep_min: int | None = None
+    light_min: int | None = None
+    rem_min: int | None = None
+    awake_min: int | None = None
 
 
 @dataclass
@@ -33,6 +37,7 @@ class ActivityData:
     active_calories: int | None
     resting_calories: int | None
     total_calories: int | None = None
+    floors_ascended: int | None = None
 
 
 @dataclass
@@ -44,6 +49,9 @@ class DailySummary:
     avg_stress: int | None = None
     body_battery_high: int | None = None
     body_battery_low: int | None = None
+    spo2_avg: float | None = None
+    intensity_moderate_min: int | None = None
+    intensity_vigorous_min: int | None = None
     weight_kg: float | None = None
 
 
@@ -166,10 +174,17 @@ class GarminClient:
             score = daily.get("averageSpO2Value")  # fallback not ideal; log it
         score_val = int(score) if score is not None else None
 
+        def _to_min(seconds: int | None) -> int | None:
+            return round(seconds / 60) if seconds else None
+
         return SleepData(
             hours=hours,
             score=score_val,
             quality=_assess_sleep_quality(score_val),
+            deep_min=_to_min(daily.get("deepSleepSeconds")),
+            light_min=_to_min(daily.get("lightSleepSeconds")),
+            rem_min=_to_min(daily.get("remSleepSeconds")),
+            awake_min=_to_min(daily.get("awakeSleepSeconds")),
         )
 
     @retry(
@@ -207,22 +222,34 @@ class GarminClient:
         active_cals = raw.get("activeKilocalories")
         resting_cals = raw.get("bmrKilocalories")
         total_cals = raw.get("totalKilocalories")
+        floors = raw.get("floorsAscended")
 
         return ActivityData(
             steps=int(steps) if steps is not None else None,
             active_calories=int(active_cals) if active_cals is not None else None,
             resting_calories=int(resting_cals) if resting_cals is not None else None,
             total_calories=int(total_cals) if total_cals is not None else None,
+            floors_ascended=int(floors) if floors is not None else None,
         )
 
     def get_health_data(self, day: date) -> dict:
-        """Fetch resting HR, avg stress, and body battery for the given date.
-        Returns a dict with keys: resting_heart_rate, avg_stress, body_battery_high, body_battery_low.
+        """Fetch resting HR, stress, body battery, SpO2, and intensity minutes.
+
+        Returns a dict with keys: resting_heart_rate, avg_stress, body_battery_high,
+        body_battery_low, spo2_avg, intensity_moderate_min, intensity_vigorous_min.
         Any value may be None. Never raises — fails silently.
         """
         client = self._ensure_authenticated()
         date_str = day.isoformat()
-        result = {"resting_heart_rate": None, "avg_stress": None, "body_battery_high": None, "body_battery_low": None}
+        result = {
+            "resting_heart_rate": None,
+            "avg_stress": None,
+            "body_battery_high": None,
+            "body_battery_low": None,
+            "spo2_avg": None,
+            "intensity_moderate_min": None,
+            "intensity_vigorous_min": None,
+        }
         try:
             stats = client.get_stats(date_str)
             if stats:
@@ -244,6 +271,23 @@ class GarminClient:
                     result["body_battery_low"] = min(values)
         except Exception as exc:
             logger.debug("Could not fetch body battery for %s: %s", date_str, exc)
+        try:
+            spo2 = client.get_spo2_data(date_str)
+            if spo2 and isinstance(spo2, dict):
+                avg = spo2.get("averageSpO2")
+                if avg is not None:
+                    result["spo2_avg"] = round(float(avg), 1)
+        except Exception as exc:
+            logger.debug("Could not fetch SpO2 for %s: %s", date_str, exc)
+        try:
+            intensity = client.get_intensity_minutes_data(date_str)
+            if intensity and isinstance(intensity, dict):
+                mod = intensity.get("moderateIntensityMinutes")
+                vig = intensity.get("vigorousIntensityMinutes")
+                result["intensity_moderate_min"] = int(mod) if mod is not None else None
+                result["intensity_vigorous_min"] = int(vig) if vig is not None else None
+        except Exception as exc:
+            logger.debug("Could not fetch intensity minutes for %s: %s", date_str, exc)
         return result
 
     def get_weight_data(self, day: date) -> float | None:
@@ -446,14 +490,22 @@ class GarminClient:
             "sleep_hours": summary.sleep.hours,
             "sleep_score": summary.sleep.score,
             "sleep_quality": summary.sleep.quality,
+            "sleep_deep_min": summary.sleep.deep_min,
+            "sleep_light_min": summary.sleep.light_min,
+            "sleep_rem_min": summary.sleep.rem_min,
+            "sleep_awake_min": summary.sleep.awake_min,
             "steps": summary.activity.steps,
             "active_calories": summary.activity.active_calories,
             "resting_calories": summary.activity.resting_calories,
             "total_calories": summary.activity.total_calories,
+            "floors_ascended": summary.activity.floors_ascended,
+            "intensity_moderate_min": summary.intensity_moderate_min,
+            "intensity_vigorous_min": summary.intensity_vigorous_min,
             "resting_heart_rate": summary.resting_heart_rate,
             "avg_stress": summary.avg_stress,
             "body_battery_high": summary.body_battery_high,
             "body_battery_low": summary.body_battery_low,
+            "spo2_avg": summary.spo2_avg,
             "weight_kg": summary.weight_kg,
             "garmin_sync_success": has_data,
         }

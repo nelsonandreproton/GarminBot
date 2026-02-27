@@ -44,6 +44,14 @@ class Repository:
                 "body_battery_low": "INTEGER",
                 "weight_kg": "REAL",
                 "total_calories": "INTEGER",
+                "sleep_deep_min": "INTEGER",
+                "sleep_light_min": "INTEGER",
+                "sleep_rem_min": "INTEGER",
+                "sleep_awake_min": "INTEGER",
+                "floors_ascended": "INTEGER",
+                "intensity_moderate_min": "INTEGER",
+                "intensity_vigorous_min": "INTEGER",
+                "spo2_avg": "REAL",
             }
             for col, col_type in new_cols.items():
                 if col not in existing_cols:

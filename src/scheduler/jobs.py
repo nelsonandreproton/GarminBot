@@ -8,7 +8,7 @@ from datetime import date, timedelta
 
 from ..database.repository import Repository
 from ..garmin.client import GarminClient
-from ..telegram.bot import TelegramBot
+from ..telegram.bot import TelegramBot, _row_to_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -72,21 +72,7 @@ def make_report_callback(repo: Repository, bot: TelegramBot) -> callable:
             ))
             return
 
-        metrics = {
-            "date": row.date,
-            "sleep_hours": row.sleep_hours,
-            "sleep_score": row.sleep_score,
-            "sleep_quality": row.sleep_quality,
-            "steps": row.steps,
-            "active_calories": row.active_calories,
-            "resting_calories": row.resting_calories,
-            "total_calories": row.total_calories,
-            "resting_heart_rate": row.resting_heart_rate,
-            "avg_stress": row.avg_stress,
-            "body_battery_high": row.body_battery_high,
-            "body_battery_low": row.body_battery_low,
-            "weight_kg": row.weight_kg,
-        }
+        metrics = _row_to_metrics(row)
         nutrition = repo.get_daily_nutrition(yesterday)
         if nutrition.get("entry_count", 0) > 0:
             metrics["nutrition"] = {

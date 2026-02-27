@@ -89,27 +89,51 @@ def format_daily_summary(
         if sleep_score is not None:
             stars = min(5, max(0, round(sleep_score / 20)))
             score_stars = " " + "⭐" * stars
-        lines += [
+        sleep_lines = [
             "😴 *Sono*",
             f"• Duração: {_fmt_hours(sleep_h)}",
             f"• Score: {sleep_score if sleep_score is not None else '—'}/100{score_stars}",
             f"• Avaliação: {sleep_quality}",
-            "",
         ]
+        deep = metrics.get("sleep_deep_min")
+        light = metrics.get("sleep_light_min")
+        rem = metrics.get("sleep_rem_min")
+        if any(v is not None for v in [deep, light, rem]):
+            parts = []
+            if deep is not None:
+                parts.append(f"🔵 {deep}min profundo")
+            if light is not None:
+                parts.append(f"⚪ {light}min leve")
+            if rem is not None:
+                parts.append(f"🟣 {rem}min REM")
+            sleep_lines.append("• Fases: " + " | ".join(parts))
+        sleep_lines.append("")
+        lines += sleep_lines
 
-    lines += [
+    floors = metrics.get("floors_ascended")
+    int_mod = metrics.get("intensity_moderate_min")
+    int_vig = metrics.get("intensity_vigorous_min")
+    activity_lines = [
         "👟 *Atividade*",
         f"• Passos: {_fmt_steps(steps)}",
         f"• Calorias ativas: {_fmt_cals(active_cals)} kcal 🔥",
         f"• Calorias repouso: {_fmt_cals(resting_cals)} kcal",
     ]
+    if floors is not None:
+        activity_lines.append(f"• Andares: {floors} 🏢")
+    if int_mod is not None or int_vig is not None:
+        mod_str = f"{int_mod}min mod." if int_mod is not None else "—"
+        vig_str = f"{int_vig}min vig." if int_vig is not None else "—"
+        activity_lines.append(f"• Intensidade: {mod_str} + {vig_str}")
+    lines += activity_lines
 
     rhr = metrics.get("resting_heart_rate")
     avg_stress = metrics.get("avg_stress")
     bb_high = metrics.get("body_battery_high")
     bb_low = metrics.get("body_battery_low")
+    spo2 = metrics.get("spo2_avg")
     weight = metrics.get("weight_kg")
-    if any(v is not None for v in [rhr, avg_stress, bb_high, bb_low, weight]):
+    if any(v is not None for v in [rhr, avg_stress, bb_high, bb_low, spo2, weight]):
         lines += ["", "❤️ *Saúde*"]
         if rhr is not None:
             lines.append(f"• FC repouso: {rhr} bpm")
@@ -117,6 +141,8 @@ def format_daily_summary(
             lines.append(f"• Stress médio: {avg_stress}/100")
         if bb_high is not None and bb_low is not None:
             lines.append(f"• Body Battery: {bb_low}–{bb_high}")
+        if spo2 is not None:
+            lines.append(f"• SpO2: {spo2:.1f}%")
         if weight is not None:
             lines.append(f"• Peso: {weight:.1f} kg")
 
