@@ -165,7 +165,12 @@ class BodyMixin:
         found = 0
         for i in range(days):
             target = start_date + timedelta(days=i)
-            weight = self._garmin_client.get_weight_data(target)
+            try:
+                weight = self._garmin_client.get_weight_data(target)
+            except Exception as exc:
+                logger.warning("Failed to fetch weight for %s: %s", target, exc)
+                await asyncio.sleep(0.3)
+                continue
             if weight is not None:
                 self._repo.save_manual_weight(target, weight)
                 found += 1

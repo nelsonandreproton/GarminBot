@@ -70,6 +70,7 @@ class SystemMixin:
         from ..formatters import format_help_message
         await update.message.reply_text(format_help_message())
 
+    @safe_command
     async def _cmd_exportar(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """/exportar [N|nutricao] — export Garmin or nutrition data as CSV."""
         if not self._auth_check(update) or _is_rate_limited(update.effective_chat.id):
@@ -132,6 +133,7 @@ class SystemMixin:
             caption=f"📊 {len(rows)} dias exportados",
         )
 
+    @safe_command
     async def _cmd_backfill(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """/backfill <N> — sync last N missing days (max 30)."""
         if not self._auth_check(update) or _is_rate_limited(update.effective_chat.id):
@@ -149,5 +151,10 @@ class SystemMixin:
             await update.message.reply_text(f"✅ Sem dias em falta nos últimos {n} dias.")
             return
         await update.message.reply_text(f"⏳ A sincronizar {len(missing)} dias em falta...")
-        self._garmin_backfill(missing)
+        try:
+            self._garmin_backfill(missing)
+        except Exception as exc:
+            logger.error("Backfill failed: %s", exc, exc_info=True)
+            await update.message.reply_text(f"❌ Backfill falhou: {exc}")
+            return
         await update.message.reply_text(f"✅ Backfill concluído para {len(missing)} dias.")

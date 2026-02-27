@@ -49,8 +49,16 @@ def cmd_daily(repo: Repository, bot: TelegramBot) -> None:
 
 
 def cmd_weekly(repo: Repository, bot: TelegramBot, db_path: str) -> None:
+    today = date.today()
+    last_sunday = today - timedelta(days=today.weekday() + 1)
+    stats = repo.get_weekly_stats(last_sunday)
+    if not stats:
+        print("⚠️ Sem dados suficientes para o relatório semanal.")
+        return
+    weight_stats = repo.get_weekly_weight_stats(last_sunday)
+    water_avg = repo.get_weekly_water_avg(last_sunday)
     print("▶ A enviar weekly report + chart + insights + backup...")
-    _run(bot.send_weekly_report())
+    _run(bot.send_weekly_report(stats, weight_stats=weight_stats or None, water_weekly_avg_ml=water_avg))
     print("✅ Weekly report enviado.")
 
 

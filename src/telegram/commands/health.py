@@ -4,16 +4,13 @@ from __future__ import annotations
 
 import logging
 from datetime import date, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from ..helpers import _is_rate_limited, _row_to_metrics, safe_command
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 
