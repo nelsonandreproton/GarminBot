@@ -17,10 +17,19 @@ Regras:
 - "e" separa alimentos diferentes
 - "+" faz parte do nome do mesmo produto (ex: "+proteína" é parte do produto)
 - Se não há quantidade explícita, assume 1 unidade
-- Se há peso (ex: "150g"), usa unit="g"
-- Se há volume (ex: "200ml"), usa unit="ml"
+- Se há peso em gramas — sufixo colado (ex: "150g"), separado (ex: "150 g"),
+  ou por extenso (ex: "150 gramas", "150 gr") — usa unit="g"
+- Se há volume em mililitros — sufixo colado (ex: "200ml"), separado (ex: "200 ml"),
+  ou por extenso (ex: "200 mililitros") — usa unit="ml"
 - Caso contrário, usa unit="un"
+- O peso/volume NÃO faz parte do nome: "200g bacalhau cozido" → name="bacalhau cozido"
 - Normaliza nomes: remove "de", "um/uma" desnecessários no início, mantém marca e variante
+
+Exemplos:
+  "200g bacalhau cozido"         → [{"name": "bacalhau cozido", "quantity": 200, "unit": "g"}]
+  "200 gramas de frango grelhado"→ [{"name": "frango grelhado", "quantity": 200, "unit": "g"}]
+  "1 ovo e 150g arroz"           → [{"name": "ovo", "quantity": 1, "unit": "un"}, {"name": "arroz", "quantity": 150, "unit": "g"}]
+  "250ml leite"                  → [{"name": "leite", "quantity": 250, "unit": "ml"}]
 
 Responde APENAS com JSON válido, sem markdown:
 [{"name": "...", "quantity": N, "unit": "..."}]"""
