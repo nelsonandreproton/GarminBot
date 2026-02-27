@@ -26,7 +26,6 @@ from src.garmin.client import GarminClient
 from src.scheduler.jobs import (
     make_report_callback,
     make_sync_job,
-    make_weekly_report_job,
 )
 from src.telegram.bot import TelegramBot
 from src.utils.logger import setup_logging
@@ -45,15 +44,13 @@ def cmd_sync(garmin: GarminClient, repo: Repository) -> None:
 
 def cmd_daily(repo: Repository, bot: TelegramBot) -> None:
     print("▶ A enviar daily report...")
-    job = make_daily_report_job(repo, bot)
-    job()
+    make_report_callback(repo, bot)()
     print("✅ Daily report enviado.")
 
 
 def cmd_weekly(repo: Repository, bot: TelegramBot, db_path: str) -> None:
     print("▶ A enviar weekly report + chart + insights + backup...")
-    job = make_weekly_report_job(repo, bot, db_path)
-    job()
+    _run(bot.send_weekly_report())
     print("✅ Weekly report enviado.")
 
 
