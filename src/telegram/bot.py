@@ -687,7 +687,7 @@ class TelegramBot:
             )
             return
 
-        # Show current weight status + last 10 records
+        # Show current weight status + last 20 records + trend chart
         yesterday = date.today() - timedelta(days=1)
         current_weight, current_date = self._repo.get_latest_weight()
         weight_stats = self._repo.get_weekly_weight_stats(yesterday)
@@ -695,6 +695,15 @@ class TelegramBot:
         recent_records = self._repo.get_recent_weight_records(20)
         text = format_weight_status(current_weight, current_date, weight_stats or None, goals, recent_records)
         await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+
+        # Send trend chart if enough data
+        trend_records = self._repo.get_weight_records_range(90)
+        if len(trend_records) >= 2:
+            from ..utils.charts import generate_weight_trend_chart
+            weight_goal = goals.get("weight_kg") if goals else None
+            chart = generate_weight_trend_chart(trend_records, weight_goal=weight_goal, days=90)
+            if chart:
+                await self.send_image(chart, caption="📊 Tendência de peso (90 dias)")
 
     async def _cmd_sync_peso(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """/sync_peso [dias] — sync weight from Garmin for the last N days (default 30)."""

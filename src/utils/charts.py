@@ -214,3 +214,78 @@ def generate_monthly_chart(rows: list[Any], goals: dict[str, float] | None = Non
     except Exception as exc:
         logger.error("Monthly chart generation failed: %s", exc)
         return None
+
+
+@_requires_matplotlib
+def generate_weight_trend_chart(
+    records: list[tuple],
+    weight_goal: float | None = None,
+    days: int = 90,
+) -> bytes | None:
+    """Generate a weight trend chart with a linear regression trend line.
+
+    Args:
+        records: List of (date, weight_kg) pairs ordered oldest-first.
+        weight_goal: Optional target weight for a reference line.
+        days: Number of days the chart covers (used for title).
+
+    Returns:
+        PNG image as bytes, or None if generation fails.
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    if len(records) < 2:
+        return None
+
+    try:
+        dates, weights = zip(*records)
+        x = list(range(len(dates)))
+        date_labels = [d.strftime("%d/%m") for d in dates]
+
+        # Linear trend line
+        coeffs = np.polyfit(x, weights, 1)
+        trend = np.polyval(coeffs, x)
+        trend_dir = "▼" if coeffs[0] < -0.01 else ("▲" if coeffs[0] > 0.01 else "→")
+        kg_change = coeffs[0] * (len(x) - 1)
+
+        fig, ax = plt.subplots(figsize=(9, 4), facecolor="#1a1a2e")
+        fig.suptitle(
+            f"Evolução do Peso — últimos {days} dias  {trend_dir} {kg_change:+.1f} kg",
+            color="white", fontsize=13, fontweight="bold",
+        )
+
+        ax.scatter(x, weights, color="#4ecca3", s=40, zorder=3, label="Peso registado")
+        ax.plot(x, weights, color="#4ecca3", linewidth=1.2, alpha=0.5)
+        ax.plot(x, trend, color="#f8b500", linewidth=2, linestyle="--", label="Tendência")
+
+        if weight_goal is not None:
+            ax.axhline(weight_goal, color="#e94560", linestyle=":", linewidth=1.5,
+                       alpha=0.8, label=f"Objetivo: {weight_goal:.0f} kg")
+
+        # Y-axis range with small margin
+        margin = max(0.5, (max(weights) - min(weights)) * 0.25)
+        ax.set_ylim(min(weights) - margin, max(weights) + margin)
+
+        # X-axis: show up to 8 tick labels
+        tick_step = max(1, len(x) // 8)
+        tick_positions = list(range(0, len(x), tick_step))
+        ax.set_xticks(tick_positions)
+        ax.set_xticklabels([date_labels[i] for i in tick_positions])
+
+        ax.set_ylabel("Peso (kg)", color="white")
+        ax.set_facecolor("#16213e")
+        ax.tick_params(colors="white")
+        ax.legend(facecolor="#16213e", labelcolor="white", fontsize=8)
+        for spine in ax.spines.values():
+            spine.set_edgecolor("#444")
+
+        plt.tight_layout()
+        buf = io.BytesIO()
+        plt.savefig(buf, format="png", dpi=120, bbox_inches="tight", facecolor=fig.get_facecolor())
+        plt.close(fig)
+        buf.seek(0)
+        return buf.read()
+    except Exception as exc:
+        logger.error("Weight trend chart generation failed: %s", exc)
+        return None

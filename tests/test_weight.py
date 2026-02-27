@@ -725,3 +725,78 @@ def test_format_waist_status_positive_variation():
     ]
     text = format_waist_status(records)
     assert "+1.0 cm" in text
+
+
+# ------------------------------------------------------------------ #
+# Repository: get_weight_records_range                               #
+# ------------------------------------------------------------------ #
+
+def test_get_weight_records_range_empty(repo):
+    result = repo.get_weight_records_range(90)
+    assert result == []
+
+
+def test_get_weight_records_range_oldest_first(repo):
+    today = date.today()
+    repo.save_manual_weight(today - timedelta(days=10), 80.0)
+    repo.save_manual_weight(today - timedelta(days=5), 79.5)
+    repo.save_manual_weight(today - timedelta(days=1), 79.0)
+    result = repo.get_weight_records_range(90)
+    assert len(result) == 3
+    assert result[0][0] < result[1][0] < result[2][0]  # ascending order
+    assert result[2][1] == 79.0
+
+
+def test_get_weight_records_range_respects_cutoff(repo):
+    today = date.today()
+    repo.save_manual_weight(today - timedelta(days=100), 81.0)  # outside 90-day window
+    repo.save_manual_weight(today - timedelta(days=5), 79.5)
+    result = repo.get_weight_records_range(90)
+    assert len(result) == 1
+    assert result[0][1] == 79.5
+
+
+def test_get_weight_records_range_skips_nulls(repo):
+    today = date.today()
+    repo.save_daily_metrics(today - timedelta(days=3), {"steps": 8000, "garmin_sync_success": True})
+    repo.save_manual_weight(today - timedelta(days=1), 79.0)
+    result = repo.get_weight_records_range(30)
+    assert len(result) == 1
+
+
+# ------------------------------------------------------------------ #
+# Charts: generate_weight_trend_chart                                #
+# ------------------------------------------------------------------ #
+
+def test_weight_trend_chart_returns_bytes():
+    from src.utils.charts import generate_weight_trend_chart
+    records = [(date(2026, 1, 1) + timedelta(days=i), 80.0 - i * 0.1) for i in range(10)]
+    result = generate_weight_trend_chart(records, days=30)
+    assert result is not None
+    assert len(result) > 0
+
+
+def test_weight_trend_chart_with_goal():
+    from src.utils.charts import generate_weight_trend_chart
+    records = [(date(2026, 1, 1) + timedelta(days=i), 80.0 - i * 0.1) for i in range(10)]
+    result = generate_weight_trend_chart(records, weight_goal=75.0, days=30)
+    assert result is not None
+
+
+def test_weight_trend_chart_returns_none_for_single_point():
+    from src.utils.charts import generate_weight_trend_chart
+    result = generate_weight_trend_chart([(date(2026, 1, 1), 80.0)], days=30)
+    assert result is None
+
+
+def test_weight_trend_chart_returns_none_for_empty():
+    from src.utils.charts import generate_weight_trend_chart
+    result = generate_weight_trend_chart([], days=30)
+    assert result is None
+
+
+def test_weight_trend_chart_upward_trend():
+    from src.utils.charts import generate_weight_trend_chart
+    records = [(date(2026, 1, 1) + timedelta(days=i), 78.0 + i * 0.2) for i in range(15)]
+    result = generate_weight_trend_chart(records, days=30)
+    assert result is not None

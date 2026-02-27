@@ -398,6 +398,19 @@ class Repository:
             )
             return [(r.date, r.weight_kg) for r in rows]
 
+    def get_weight_records_range(self, days: int = 90) -> list[tuple[date, float]]:
+        """Return weight records for the last `days` days as (date, kg) pairs, oldest first."""
+        from datetime import date as _date, timedelta
+        cutoff = _date.today() - timedelta(days=days)
+        with self._session() as session:
+            rows = (
+                session.query(DailyMetrics.date, DailyMetrics.weight_kg)
+                .filter(DailyMetrics.weight_kg.isnot(None), DailyMetrics.date >= cutoff)
+                .order_by(DailyMetrics.date.asc())
+                .all()
+            )
+            return [(r.date, r.weight_kg) for r in rows]
+
     # ------------------------------------------------------------------ #
     # Waist operations                                                      #
     # ------------------------------------------------------------------ #
