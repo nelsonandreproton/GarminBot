@@ -13,6 +13,7 @@ from src.garmin.client import (
     DailySummary,
     GarminClient,
     SleepData,
+    _parse_weight_response,
 )
 from src.telegram.formatters import (
     format_daily_summary,
@@ -148,16 +149,93 @@ def test_get_weekly_weight_stats_no_previous_week(repo):
 # Garmin client: get_weight_data                                       #
 # ------------------------------------------------------------------ #
 
-def test_get_weight_data_parses_response():
+# ------------------------------------------------------------------ #
+# _parse_weight_response: unit tests for each response format          #
+# ------------------------------------------------------------------ #
+
+def test_parse_weight_response_none():
+    assert _parse_weight_response(None) is None
+
+
+def test_parse_weight_response_empty_dict():
+    assert _parse_weight_response({}) is None
+
+
+def test_parse_weight_response_dateWeightList():
+    raw = {"dateWeightList": [{"weight": 78500}]}
+    assert _parse_weight_response(raw) == 78.5
+
+
+def test_parse_weight_response_top_level_allWeightMetrics():
+    raw = {"allWeightMetrics": [{"weight": 79000}]}
+    assert _parse_weight_response(raw) == 79.0
+
+
+def test_parse_weight_response_dailyWeightSummaries():
+    raw = {
+        "dailyWeightSummaries": [
+            {"allWeightMetrics": [{"weight": 78500}]}
+        ]
+    }
+    assert _parse_weight_response(raw) == 78.5
+
+
+def test_parse_weight_response_wellness_weight():
+    raw = {
+        "allMetrics": {
+            "metricsMap": {
+                "WELLNESS_WEIGHT": [{"value": 80000}]
+            }
+        }
+    }
+    assert _parse_weight_response(raw) == 80.0
+
+
+def test_parse_weight_response_zero_weight_ignored():
+    """weight=0 should be treated as no data."""
+    raw = {"dateWeightList": [{"weight": 0}]}
+    assert _parse_weight_response(raw) is None
+
+
+def test_parse_weight_response_multiple_summaries_uses_last():
+    """Reversed iteration means the last summary in the list is tried first."""
+    raw = {
+        "dailyWeightSummaries": [
+            {"allWeightMetrics": [{"weight": 80000}]},
+            {"allWeightMetrics": [{"weight": 78500}]},
+        ]
+    }
+    # reversed means second entry (78500) is tried first
+    assert _parse_weight_response(raw) == 78.5
+
+
+# ------------------------------------------------------------------ #
+# GarminClient.get_weight_data: integration with two endpoints        #
+# ------------------------------------------------------------------ #
+
+def test_get_weight_data_from_daily_weigh_ins():
+    """get_daily_weigh_ins is tried first and succeeds."""
     client = _make_client()
     mock_garmin = MagicMock()
+    mock_garmin.get_daily_weigh_ins.return_value = {
+        "dateWeightList": [{"weight": 78500}]
+    }
+    client._client = mock_garmin
+
+    result = client.get_weight_data(date(2026, 2, 15))
+    assert result == 78.5
+    mock_garmin.get_daily_weigh_ins.assert_called_once_with("2026-02-15")
+    mock_garmin.get_body_composition.assert_not_called()
+
+
+def test_get_weight_data_falls_back_to_body_composition():
+    """If get_daily_weigh_ins returns nothing, get_body_composition is used."""
+    client = _make_client()
+    mock_garmin = MagicMock()
+    mock_garmin.get_daily_weigh_ins.return_value = {}
     mock_garmin.get_body_composition.return_value = {
         "dailyWeightSummaries": [
-            {
-                "allWeightMetrics": [
-                    {"weight": 78500}  # 78.5 kg in grams
-                ]
-            }
+            {"allWeightMetrics": [{"weight": 78500}]}
         ]
     }
     client._client = mock_garmin
@@ -170,6 +248,7 @@ def test_get_weight_data_parses_response():
 def test_get_weight_data_empty_response():
     client = _make_client()
     mock_garmin = MagicMock()
+    mock_garmin.get_daily_weigh_ins.return_value = {}
     mock_garmin.get_body_composition.return_value = {}
     client._client = mock_garmin
 
@@ -180,6 +259,7 @@ def test_get_weight_data_empty_response():
 def test_get_weight_data_no_summaries():
     client = _make_client()
     mock_garmin = MagicMock()
+    mock_garmin.get_daily_weigh_ins.return_value = {}
     mock_garmin.get_body_composition.return_value = {"dailyWeightSummaries": []}
     client._client = mock_garmin
 
@@ -187,14 +267,30 @@ def test_get_weight_data_no_summaries():
     assert result is None
 
 
-def test_get_weight_data_api_error():
+def test_get_weight_data_both_endpoints_fail():
+    """Both endpoints raise — returns None without raising."""
     client = _make_client()
     mock_garmin = MagicMock()
+    mock_garmin.get_daily_weigh_ins.side_effect = Exception("timeout")
     mock_garmin.get_body_composition.side_effect = Exception("API error")
     client._client = mock_garmin
 
     result = client.get_weight_data(date(2026, 2, 15))
     assert result is None
+
+
+def test_get_weight_data_weigh_ins_fails_body_composition_succeeds():
+    """If get_daily_weigh_ins raises, falls back to get_body_composition."""
+    client = _make_client()
+    mock_garmin = MagicMock()
+    mock_garmin.get_daily_weigh_ins.side_effect = Exception("timeout")
+    mock_garmin.get_body_composition.return_value = {
+        "dailyWeightSummaries": [{"allWeightMetrics": [{"weight": 79000}]}]
+    }
+    client._client = mock_garmin
+
+    result = client.get_weight_data(date(2026, 2, 15))
+    assert result == 79.0
 
 
 def test_to_metrics_dict_includes_weight():

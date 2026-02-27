@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import io as _io
 import logging
@@ -698,9 +699,49 @@ class TelegramBot:
         current_weight, current_date = self._repo.get_latest_weight()
         weight_stats = self._repo.get_weekly_weight_stats(yesterday)
         goals = self._repo.get_goals()
-        recent_records = self._repo.get_recent_weight_records(10)
+        recent_records = self._repo.get_recent_weight_records(20)
         text = format_weight_status(current_weight, current_date, weight_stats or None, goals, recent_records)
         await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+
+    async def _cmd_sync_peso(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """/sync_peso [dias] — sync weight from Garmin for the last N days (default 30)."""
+        if not self._auth_check(update) or _is_rate_limited(update.effective_chat.id):
+            return
+        if self._garmin_client is None:
+            await update.message.reply_text("Cliente Garmin não configurado.")
+            return
+
+        args = context.args or []
+        try:
+            days = int(args[0]) if args else 30
+            if not 1 <= days <= 365:
+                await update.message.reply_text("Número de dias deve estar entre 1 e 365.")
+                return
+        except ValueError:
+            await update.message.reply_text("Uso: /sync_peso [dias] (ex: /sync_peso 30)")
+            return
+
+        end_date = date.today() - timedelta(days=1)
+        start_date = end_date - timedelta(days=days - 1)
+        await update.message.reply_text(
+            f"⏳ A sincronizar peso de {start_date.strftime('%d/%m/%Y')} a {end_date.strftime('%d/%m/%Y')}..."
+        )
+
+        found = 0
+        for i in range(days):
+            target = start_date + timedelta(days=i)
+            weight = self._garmin_client.get_weight_data(target)
+            if weight is not None:
+                self._repo.save_manual_weight(target, weight)
+                found += 1
+            await asyncio.sleep(0.3)
+
+        await update.message.reply_text(
+            f"✅ Sincronização de peso concluída!\n"
+            f"• Período: {start_date.strftime('%d/%m')} – {end_date.strftime('%d/%m/%Y')}\n"
+            f"• Registos encontrados: *{found}* de {days} dias",
+            parse_mode=ParseMode.MARKDOWN,
+        )
 
     async def _cmd_barriga(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """/barriga [valor] — view or register waist circumference in cm."""
@@ -1430,6 +1471,7 @@ class TelegramBot:
         app.add_handler(CommandHandler("backfill", self._cmd_backfill))
         app.add_handler(CommandHandler("objetivo", self._cmd_objetivo))
         app.add_handler(CommandHandler("peso", self._cmd_peso))
+        app.add_handler(CommandHandler("sync_peso", self._cmd_sync_peso))
         app.add_handler(CommandHandler("barriga", self._cmd_barriga))
         app.add_handler(CommandHandler("nutricao", self._cmd_nutricao))
         app.add_handler(CommandHandler("dieta", self._cmd_nutricao))
@@ -1484,6 +1526,7 @@ class TelegramBot:
             BotCommand("exportar", "Exportar dados em CSV"),
             BotCommand("objetivo", "Ver ou definir objetivos"),
             BotCommand("peso", "Ver ou registar peso (ex: /peso 78.5)"),
+            BotCommand("sync_peso", "Sincronizar peso do Garmin (ex: /sync_peso 30)"),
             BotCommand("barriga", "Ver ou registar perímetro abdominal (ex: /barriga 95.5)"),
             BotCommand("status", "Estado do bot"),
             BotCommand("ajuda", "Lista de comandos"),

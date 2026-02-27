@@ -60,6 +60,47 @@ def _assess_sleep_quality(score: int | None) -> str | None:
     return "Mau"
 
 
+def _parse_weight_response(raw: dict | None) -> float | None:
+    """Extract weight in kg from a Garmin weight API response dict.
+
+    Handles multiple response structures returned by different Garmin API endpoints:
+      - {"dateWeightList": [{"weight": grams}]}           (get_daily_weigh_ins)
+      - {"allWeightMetrics": [{"weight": grams}]}          (top-level)
+      - {"dailyWeightSummaries": [{"allWeightMetrics": [{"weight": grams}]}]}  (get_body_composition)
+      - {"allMetrics": {"metricsMap": {"WELLNESS_WEIGHT": [{"value": grams}]}}}
+    """
+    if not raw or not isinstance(raw, dict):
+        return None
+
+    # Format 1: dateWeightList (get_daily_weigh_ins primary format)
+    for entry in raw.get("dateWeightList") or []:
+        w = entry.get("weight")
+        if w is not None and w > 0:
+            return round(w / 1000, 1)
+
+    # Format 2: top-level allWeightMetrics
+    for entry in raw.get("allWeightMetrics") or []:
+        w = entry.get("weight")
+        if w is not None and w > 0:
+            return round(w / 1000, 1)
+
+    # Format 3: dailyWeightSummaries (get_body_composition primary format)
+    for summary in reversed(raw.get("dailyWeightSummaries") or []):
+        for entry in summary.get("allWeightMetrics") or []:
+            w = entry.get("weight")
+            if w is not None and w > 0:
+                return round(w / 1000, 1)
+
+    # Format 4: allMetrics → metricsMap → WELLNESS_WEIGHT (older API versions)
+    metrics_map = (raw.get("allMetrics") or {}).get("metricsMap") or {}
+    for entry in metrics_map.get("WELLNESS_WEIGHT") or []:
+        v = entry.get("value")
+        if v is not None and v > 0:
+            return round(v / 1000, 1)
+
+    return None
+
+
 def _on_retry(retry_state) -> None:
     logger.warning(
         "Garmin API attempt %d failed: %s",
@@ -206,31 +247,42 @@ class GarminClient:
         return result
 
     def get_weight_data(self, day: date) -> float | None:
-        """Fetch weight for the given date from Garmin body composition.
+        """Fetch weight for the given date from Garmin.
 
-        Returns weight in kg, or None if no data available.
+        Tries get_daily_weigh_ins first (most specific per-day endpoint),
+        then falls back to get_body_composition. Handles multiple response
+        formats across Garmin API versions.
         Never raises — fails silently.
         """
         client = self._ensure_authenticated()
         date_str = day.isoformat()
+
+        # Try get_daily_weigh_ins first (most specific per-day endpoint)
+        try:
+            raw = client.get_daily_weigh_ins(date_str)
+            if raw:
+                logger.debug("get_daily_weigh_ins keys for %s: %s", date_str, list(raw.keys()) if isinstance(raw, dict) else type(raw))
+                weight = _parse_weight_response(raw)
+                if weight is not None:
+                    logger.debug("Weight for %s from get_daily_weigh_ins: %.1f kg", date_str, weight)
+                    return weight
+        except Exception as exc:
+            logger.debug("get_daily_weigh_ins failed for %s: %s", date_str, exc)
+
+        # Fall back to get_body_composition
         try:
             raw = client.get_body_composition(date_str)
-            if not raw:
-                return None
-            summaries = raw.get("dailyWeightSummaries") or []
-            if not summaries:
-                return None
-            # Each summary has "allWeightMetrics" list with weight entries
-            for summary in reversed(summaries):  # most recent first
-                entries = summary.get("allWeightMetrics") or []
-                for entry in entries:
-                    weight_grams = entry.get("weight")
-                    if weight_grams is not None and weight_grams > 0:
-                        return round(weight_grams / 1000, 1)
-            return None
+            if raw:
+                logger.debug("get_body_composition keys for %s: %s", date_str, list(raw.keys()) if isinstance(raw, dict) else type(raw))
+                weight = _parse_weight_response(raw)
+                if weight is not None:
+                    logger.debug("Weight for %s from get_body_composition: %.1f kg", date_str, weight)
+                    return weight
         except Exception as exc:
-            logger.debug("Could not fetch weight for %s: %s", date_str, exc)
-            return None
+            logger.debug("get_body_composition failed for %s: %s", date_str, exc)
+
+        logger.warning("No weight data for %s (both endpoints returned nothing)", date_str)
+        return None
 
     def get_activities_for_date(self, day: date) -> list[dict]:
         """Fetch recorded activities for a specific date from Garmin Connect.
