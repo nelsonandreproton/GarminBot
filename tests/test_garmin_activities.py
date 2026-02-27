@@ -308,3 +308,98 @@ def test_format_activity_sync_multiple_activities():
 def test_format_activity_sync_shows_day_label():
     text = format_activity_sync([], "26/02/2026 (hoje)")
     assert "26/02/2026" in text
+
+
+# ------------------------------------------------------------------ #
+# Repository: get_weekly_training_load                               #
+# ------------------------------------------------------------------ #
+
+def test_weekly_training_load_empty(repo):
+    result = repo.get_weekly_training_load(date.today())
+    assert result == {}
+
+
+def test_weekly_training_load_single_activity(repo):
+    today = date.today()
+    repo.upsert_garmin_activity(1, today, "Musculação", "strength_training", 45, 320, None)
+    load = repo.get_weekly_training_load(today)
+    assert "strength_training" in load
+    assert load["strength_training"]["minutes"] == 45
+    assert load["strength_training"]["count"] == 1
+    assert load["strength_training"]["km"] == 0.0
+
+
+def test_weekly_training_load_aggregates_same_type(repo):
+    today = date.today()
+    yesterday = today - timedelta(days=1)
+    repo.upsert_garmin_activity(1, today, "Run 1", "running", 30, 250, 5.0)
+    repo.upsert_garmin_activity(2, yesterday, "Run 2", "running", 40, 300, 6.0)
+    load = repo.get_weekly_training_load(today)
+    assert load["running"]["minutes"] == 70
+    assert load["running"]["km"] == pytest.approx(11.0)
+    assert load["running"]["count"] == 2
+
+
+def test_weekly_training_load_multiple_types(repo):
+    today = date.today()
+    repo.upsert_garmin_activity(1, today, "Run", "running", 30, 250, 5.0)
+    repo.upsert_garmin_activity(2, today, "Gym", "strength_training", 45, 320, None)
+    load = repo.get_weekly_training_load(today)
+    assert "running" in load
+    assert "strength_training" in load
+
+
+def test_weekly_training_load_excludes_outside_window(repo):
+    today = date.today()
+    repo.upsert_garmin_activity(1, today - timedelta(days=10), "Old", "running", 30, 200, 4.0)
+    repo.upsert_garmin_activity(2, today, "Recent", "running", 20, 150, 3.0)
+    load = repo.get_weekly_training_load(today)
+    assert load["running"]["minutes"] == 20
+    assert load["running"]["count"] == 1
+
+
+def test_weekly_training_load_none_type_key_becomes_other(repo):
+    today = date.today()
+    repo.upsert_garmin_activity(1, today, "Unknown sport", None, 25, 150, None)
+    load = repo.get_weekly_training_load(today)
+    assert "other" in load
+
+
+# ------------------------------------------------------------------ #
+# Formatter: format_weekly_training_load                             #
+# ------------------------------------------------------------------ #
+
+def test_format_weekly_training_load_empty():
+    from src.telegram.formatters import format_weekly_training_load
+    assert format_weekly_training_load({}) == ""
+
+
+def test_format_weekly_training_load_running():
+    from src.telegram.formatters import format_weekly_training_load
+    load = {"running": {"minutes": 90, "km": 14.5, "count": 3}}
+    text = format_weekly_training_load(load)
+    assert "Corrida" in text
+    assert "90min" in text
+    assert "14.5 km" in text
+    assert "3× sessões" in text
+
+
+def test_format_weekly_training_load_strength_no_distance():
+    from src.telegram.formatters import format_weekly_training_load
+    load = {"strength_training": {"minutes": 45, "km": 0.0, "count": 1}}
+    text = format_weekly_training_load(load)
+    assert "Musculação" in text
+    assert "45min" in text
+    assert "km" not in text
+    assert "1× sessão" in text
+
+
+def test_format_weekly_training_load_total_shown():
+    from src.telegram.formatters import format_weekly_training_load
+    load = {
+        "running": {"minutes": 30, "km": 5.0, "count": 1},
+        "strength_training": {"minutes": 45, "km": 0.0, "count": 1},
+    }
+    text = format_weekly_training_load(load)
+    assert "Total: 75min" in text
+    assert "5.0 km" in text

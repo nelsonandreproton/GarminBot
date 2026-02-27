@@ -42,6 +42,7 @@ from .formatters import (
     format_status,
     format_waist_status,
     format_weekly_report,
+    format_weekly_training_load,
     format_weight_status,
     format_workout_section,
     parse_preset_item_line,
@@ -375,6 +376,13 @@ class TelegramBot:
             if insights:
                 insight_text = "💡 *Insights:*\n" + "\n".join(f"• {i}" for i in insights)
                 await self._send(insight_text)
+
+        # Training load from Garmin activities
+        training_load = self._repo.get_weekly_training_load(last_sunday)
+        if training_load:
+            load_text = format_weekly_training_load(training_load)
+            if load_text:
+                await self._send(load_text)
 
     async def _cmd_mes(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """/mes — last 30 days stats + chart."""

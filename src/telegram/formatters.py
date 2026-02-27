@@ -567,6 +567,58 @@ def format_waist_status(
     return "\n".join(lines)
 
 
+def format_weekly_training_load(load: dict[str, dict]) -> str:
+    """Format weekly Garmin activity totals by type for Telegram.
+
+    Args:
+        load: Dict from Repository.get_weekly_training_load():
+              {type_key: {"minutes": int, "km": float, "count": int}}
+
+    Returns:
+        Markdown-formatted string, or empty string if no data.
+    """
+    if not load:
+        return ""
+
+    # Human-readable labels for common Garmin type_keys
+    _TYPE_LABELS: dict[str, str] = {
+        "running": "🏃 Corrida",
+        "cycling": "🚴 Ciclismo",
+        "swimming": "🏊 Natação",
+        "strength_training": "🏋️ Musculação",
+        "walking": "🚶 Caminhada",
+        "hiking": "⛰️ Trilho",
+        "yoga": "🧘 Yoga",
+        "elliptical": "⚙️ Elítica",
+        "other": "🏅 Outro",
+    }
+
+    lines = ["🏋️ *Carga de Treino Semanal*", ""]
+    total_min = 0
+    total_km = 0.0
+
+    for type_key, data in sorted(load.items(), key=lambda x: x[1]["minutes"], reverse=True):
+        label = _TYPE_LABELS.get(type_key, f"🏅 {type_key.replace('_', ' ').title()}")
+        minutes = data["minutes"]
+        km = data["km"]
+        count = data["count"]
+        parts = [f"{minutes}min"]
+        if km > 0:
+            parts.append(f"{km:.1f} km")
+        parts.append(f"{count}× sessão" if count == 1 else f"{count}× sessões")
+        lines.append(f"• {label}: {', '.join(parts)}")
+        total_min += minutes
+        total_km += km
+
+    lines.append("")
+    total_parts = [f"Total: {total_min}min"]
+    if total_km > 0:
+        total_parts.append(f"{total_km:.1f} km")
+    lines.append(f"_{', '.join(total_parts)}_")
+
+    return "\n".join(lines)
+
+
 def format_food_confirmation(items: list[Any]) -> str:
     """Format a food item list as a Telegram confirmation message.
 

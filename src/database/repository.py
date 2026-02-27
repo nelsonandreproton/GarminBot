@@ -824,3 +824,26 @@ class Repository:
             {"date": str(d), "description": " | ".join(descs)}
             for d, descs in sorted(result.items(), reverse=True)
         ]
+
+    def get_weekly_training_load(self, end_date: date) -> dict[str, dict]:
+        """Return Garmin activity totals for the 7-day period ending on end_date.
+
+        Returns:
+            Dict mapping type_key -> {"minutes": int, "km": float, "count": int}.
+            type_key "other" is used when type_key is None.
+        """
+        start_date = end_date - timedelta(days=6)
+        with self._session() as session:
+            rows = (
+                session.query(GarminActivity)
+                .filter(GarminActivity.date >= start_date, GarminActivity.date <= end_date)
+                .all()
+            )
+        totals: dict[str, dict] = {}
+        for row in rows:
+            key = row.type_key or "other"
+            entry = totals.setdefault(key, {"minutes": 0, "km": 0.0, "count": 0})
+            entry["count"] += 1
+            entry["minutes"] += row.duration_min or 0
+            entry["km"] += row.distance_km or 0.0
+        return totals
