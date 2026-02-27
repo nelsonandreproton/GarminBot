@@ -176,6 +176,19 @@ class WaistEntry(Base):
         return f"<WaistEntry date={self.date} waist_cm={self.waist_cm}>"
 
 
+class WaterEntry(Base):
+    """Records a water intake entry for a given day (multiple entries allowed)."""
+    __tablename__ = "water_entries"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    date = Column(Date, nullable=False, index=True)
+    ml = Column(Integer, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(UTC))
+
+    def __repr__(self) -> str:
+        return f"<WaterEntry date={self.date} ml={self.ml}>"
+
+
 class FoodCache(Base):
     """Cache for /comi LLM results, keyed by normalised query text."""
     __tablename__ = "food_cache"

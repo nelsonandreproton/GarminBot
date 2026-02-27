@@ -10,7 +10,7 @@ from typing import Any, Generator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from .models import Base, DailyMetrics, FoodCache, FoodEntry, GarminActivity, MealPreset, MealPresetItem, SyncLog, TrainingEntry, UserGoal, UserSetting, WaistEntry
+from .models import Base, DailyMetrics, FoodCache, FoodEntry, GarminActivity, MealPreset, MealPresetItem, SyncLog, TrainingEntry, UserGoal, UserSetting, WaistEntry, WaterEntry
 
 logger = logging.getLogger(__name__)
 
@@ -435,6 +435,41 @@ class Repository:
                 .all()
             )
             return [(r.date, r.waist_cm) for r in rows]
+
+    # ------------------------------------------------------------------ #
+    # Water operations                                                      #
+    # ------------------------------------------------------------------ #
+
+    def add_water_entry(self, day: date, ml: int) -> None:
+        """Add a water intake entry for the given day."""
+        with self._session() as session:
+            session.add(WaterEntry(date=day, ml=ml))
+        logger.debug("Added water entry %d ml for %s", ml, day)
+
+    def get_daily_water(self, day: date) -> int:
+        """Return total ml of water logged for the given day (0 if none)."""
+        from sqlalchemy import func
+        with self._session() as session:
+            total = session.query(func.sum(WaterEntry.ml)).filter(WaterEntry.date == day).scalar()
+            return int(total) if total else 0
+
+    def get_weekly_water_avg(self, end_date: date) -> float | None:
+        """Return average daily ml of water over the last 7 days ending on end_date.
+
+        Returns None if no water data in that period.
+        """
+        from sqlalchemy import func
+        start_date = end_date - timedelta(days=6)
+        with self._session() as session:
+            rows = (
+                session.query(WaterEntry.date, func.sum(WaterEntry.ml).label("total_ml"))
+                .filter(WaterEntry.date >= start_date, WaterEntry.date <= end_date)
+                .group_by(WaterEntry.date)
+                .all()
+            )
+        if not rows:
+            return None
+        return sum(r.total_ml for r in rows) / 7  # avg over 7 days, not just days with data
 
     # ------------------------------------------------------------------ #
     # Nutrition operations                                                  #

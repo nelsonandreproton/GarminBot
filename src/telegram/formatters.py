@@ -167,6 +167,11 @@ def format_daily_summary(
             "total_calories": metrics.get("total_calories"),
         })]
 
+    water_ml = metrics.get("water_ml")
+    if water_ml:
+        liters = water_ml / 1000
+        lines += ["", f"💧 *Água:* {liters:.1f} L ({water_ml} ml)"]
+
     if alerts:
         lines += ["", "💬 *Alertas:*"] + [f"• {a}" for a in alerts]
 
@@ -178,6 +183,7 @@ def format_weekly_report(
     prev_stats: dict[str, Any] | None = None,
     weekly_nutrition: dict[str, Any] | None = None,
     weight_stats: dict[str, Any] | None = None,
+    water_weekly_avg_ml: float | None = None,
 ) -> str:
     """Format a 7-day summary message for Telegram.
 
@@ -227,6 +233,10 @@ def format_weekly_report(
 
     if weekly_nutrition and weekly_nutrition.get("days_with_data", 0) > 0:
         lines += ["", format_weekly_nutrition(weekly_nutrition)]
+
+    if water_weekly_avg_ml is not None and water_weekly_avg_ml > 0:
+        liters = water_weekly_avg_ml / 1000
+        lines += ["", f"💧 *Água:* {liters:.1f} L/dia em média"]
 
     return "\n".join(lines)
 

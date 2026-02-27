@@ -199,6 +199,11 @@ class TelegramBot:
             goals = self._repo.get_goals()
             recent_rows = self._repo.get_metrics_range(day - timedelta(days=6), day)
             alerts = generate_daily_alerts(metrics, recent_rows, goals)
+        # Inject daily water total if not already set
+        if "water_ml" not in metrics:
+            water = self._repo.get_daily_water(day)
+            if water > 0:
+                metrics["water_ml"] = water
         text = format_daily_summary(
             metrics,
             weekly_stats=weekly,
@@ -213,6 +218,7 @@ class TelegramBot:
         stats: dict[str, Any],
         weight_stats: dict[str, Any] | None = None,
         weekly_nutrition: dict[str, Any] | None = None,
+        water_weekly_avg_ml: float | None = None,
     ) -> None:
         """Send the weekly report message with week-over-week comparison, weight, and nutrition.
 
@@ -221,6 +227,7 @@ class TelegramBot:
             weight_stats: Optional weekly weight stats.
             weekly_nutrition: Pre-computed weekly nutrition dict (with optional avg_deficit).
                               If None, it is fetched from the repository.
+            water_weekly_avg_ml: Optional average daily ml of water for the week.
         """
         end_date = stats.get("end_date")
         prev_stats = self._repo.get_previous_weekly_stats(end_date) if end_date else None
@@ -231,6 +238,7 @@ class TelegramBot:
             prev_stats=prev_stats,
             weekly_nutrition=weekly_nutrition if weekly_nutrition and weekly_nutrition.get("days_with_data", 0) > 0 else None,
             weight_stats=weight_stats,
+            water_weekly_avg_ml=water_weekly_avg_ml,
         )
         await self._send(text)
         logger.info("Weekly report sent")
@@ -352,7 +360,8 @@ class TelegramBot:
             weekly_nutrition["avg_deficit"] = round(sum(valid) / len(valid)) if valid else None
 
         weight_stats = self._repo.get_weekly_weight_stats(last_sunday)
-        await self.send_weekly_report(stats, weight_stats=weight_stats or None, weekly_nutrition=weekly_nutrition)
+        water_avg = self._repo.get_weekly_water_avg(last_sunday)
+        await self.send_weekly_report(stats, weight_stats=weight_stats or None, weekly_nutrition=weekly_nutrition, water_weekly_avg_ml=water_avg)
 
         # Chart
         if rows:
@@ -772,6 +781,45 @@ class TelegramBot:
         records = self._repo.get_recent_waist_records(10)
         text = format_waist_status(records)
         await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)
+
+    async def _cmd_agua(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """/agua [ml] — register water intake or show today's total."""
+        if not self._auth_check(update) or _is_rate_limited(update.effective_chat.id):
+            return
+        args = context.args or []
+        today = date.today()
+
+        if args:
+            try:
+                ml = int(args[0])
+                if not 1 <= ml <= 5000:
+                    await update.message.reply_text("Valor deve estar entre 1 e 5000 ml.")
+                    return
+            except ValueError:
+                await update.message.reply_text("Valor inválido. Uso: /agua 250")
+                return
+            self._repo.add_water_entry(today, ml)
+            total = self._repo.get_daily_water(today)
+            liters = total / 1000
+            await update.message.reply_text(
+                f"✅ *+{ml} ml* registados\\!\n💧 Total hoje: *{liters:.1f} L* \\({total} ml\\)",
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+            return
+
+        # Show today's total
+        total = self._repo.get_daily_water(today)
+        if total == 0:
+            await update.message.reply_text(
+                "💧 Nenhuma água registada hoje\\.\nUsa `/agua 250` para adicionar\\.",
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+        else:
+            liters = total / 1000
+            await update.message.reply_text(
+                f"💧 *Água hoje:* {liters:.1f} L \\({total} ml\\)",
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
 
     # ------------------------------------------------------------------ #
     # Nutrition handlers                                                    #
@@ -1461,6 +1509,7 @@ class TelegramBot:
         app.add_handler(CommandHandler("peso", self._cmd_peso))
         app.add_handler(CommandHandler("sync_peso", self._cmd_sync_peso))
         app.add_handler(CommandHandler("barriga", self._cmd_barriga))
+        app.add_handler(CommandHandler("agua", self._cmd_agua))
         app.add_handler(CommandHandler("nutricao", self._cmd_nutricao))
         app.add_handler(CommandHandler("dieta", self._cmd_nutricao))
         app.add_handler(CommandHandler("apagar", self._cmd_apagar))
@@ -1516,6 +1565,7 @@ class TelegramBot:
             BotCommand("peso", "Ver ou registar peso (ex: /peso 78.5)"),
             BotCommand("sync_peso", "Sincronizar peso do Garmin (ex: /sync_peso 30)"),
             BotCommand("barriga", "Ver ou registar perímetro abdominal (ex: /barriga 95.5)"),
+            BotCommand("agua", "Registar ou ver ingestão de água (ex: /agua 250)"),
             BotCommand("status", "Estado do bot"),
             BotCommand("ajuda", "Lista de comandos"),
             BotCommand("comi", "Registar alimento ou preset (ex: /comi Lanche)"),
