@@ -40,6 +40,7 @@ from .formatters import (
     format_monthly_report,
     format_nutrition_day,
     format_status,
+    format_training_progression,
     format_waist_status,
     format_weekly_report,
     format_weekly_training_load,
@@ -1378,6 +1379,22 @@ class TelegramBot:
         label = "hoje" if target_date == date.today() else target_date.strftime("%d/%m/%Y")
         await update.message.reply_text(f"✅ Treino registado ({label}):\n{description}")
 
+    async def _cmd_progresso(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """/progresso <exercício> — show training history for a given exercise."""
+        if not self._auth_check(update) or _is_rate_limited(update.effective_chat.id):
+            return
+        args = context.args or []
+        if not args:
+            await update.message.reply_text(
+                "Indica o exercício\\. Exemplo: `/progresso bench press`",
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+            return
+        exercise = " ".join(args)
+        entries = self._repo.search_training_entries(exercise, limit=30)
+        text = format_training_progression(exercise, entries)
+        await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN_V2)
+
     async def _cmd_sync_treino(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """/sync_treino — sync, send yesterday's summary, and generate a workout."""
         if not self._auth_check(update) or _is_rate_limited(update.effective_chat.id):
@@ -1524,6 +1541,7 @@ class TelegramBot:
         app.add_handler(CommandHandler("sync_treino", self._cmd_sync_treino))
         app.add_handler(CommandHandler("equipamento", self._cmd_equipamento))
         app.add_handler(CommandHandler("treinei", self._cmd_treinei))
+        app.add_handler(CommandHandler("progresso", self._cmd_progresso))
         app.add_handler(CommandHandler("sync_atividades", self._cmd_sync_atividades))
 
         # Nutrition conversation (text entry + barcode + meal presets)
@@ -1584,6 +1602,7 @@ class TelegramBot:
             BotCommand("sync_atividades", "Importar atividades do Garmin (ex: /sync_atividades hoje)"),
             BotCommand("equipamento", "Ver ou configurar equipamento de ginásio"),
             BotCommand("treinei", "Registar treino feito (ex: /treinei Bench 4x8)"),
+            BotCommand("progresso", "Ver histórico de exercício (ex: /progresso bench press)"),
         ]
         await bot.set_my_commands(commands)
         logger.info("Telegram commands registered with BotFather")

@@ -736,6 +736,21 @@ class Repository:
                 .all()
             )
 
+    def search_training_entries(self, query: str, limit: int = 30) -> list[dict]:
+        """Return training entries whose description contains `query` (case-insensitive).
+
+        Returns list of {"date": date, "description": str} dicts ordered oldest-first.
+        """
+        with self._session() as session:
+            rows = (
+                session.query(TrainingEntry)
+                .filter(TrainingEntry.description.ilike(f"%{query}%"))
+                .order_by(TrainingEntry.date.asc())
+                .limit(limit)
+                .all()
+            )
+            return [{"date": r.date, "description": r.description} for r in rows]
+
     # ------------------------------------------------------------------ #
     # Garmin activities (auto-sync)                                       #
     # ------------------------------------------------------------------ #

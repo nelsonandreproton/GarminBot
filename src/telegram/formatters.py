@@ -619,6 +619,36 @@ def format_weekly_training_load(load: dict[str, dict]) -> str:
     return "\n".join(lines)
 
 
+def format_training_progression(exercise: str, entries: list[dict]) -> str:
+    """Format training history search results for /progresso.
+
+    Args:
+        exercise: The search term entered by the user.
+        entries: List of {"date": date, "description": str} dicts, oldest-first.
+
+    Returns:
+        Markdown-formatted progression history.
+    """
+    if not entries:
+        return (
+            f"🏋️ *Progressão — {exercise}*\n\n"
+            f"Nenhum registo encontrado para \"{exercise}\"\\.\n"
+            f"Usa `/treinei` para registar treinos\\."
+        )
+
+    lines = [f"🏋️ *Progressão — {exercise}* \\({len(entries)} registos\\)", ""]
+    for entry in entries:
+        d = entry["date"]
+        desc = entry["description"]
+        # Escape markdown special chars in the description
+        safe_desc = desc.replace("_", "\\_").replace("*", "\\*").replace("`", "\\`")
+        lines.append(f"📅 *{d.strftime('%d/%m/%Y')}*")
+        lines.append(f"  {safe_desc}")
+        lines.append("")
+
+    return "\n".join(lines).rstrip()
+
+
 def format_food_confirmation(items: list[Any]) -> str:
     """Format a food item list as a Telegram confirmation message.
 
