@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 _AWAITING_CONFIRMATION = 0
 _AWAITING_BARCODE_QUANTITY = 1
 _AWAITING_PRESET_ITEMS = 2
+_AWAITING_EAN_FALLBACK_NAME = 3
 
 
 class NutritionMixin:
@@ -67,11 +68,13 @@ class NutritionMixin:
             await update.message.reply_text("🔍 A procurar produto...")
             result = self._nutrition_service.lookup_ean(ean_code)
             if result is None:
+                context.user_data["pending_ean_code"] = ean_code
                 await update.message.reply_text(
-                    f"❌ Produto com código *{ean_code}* não encontrado no OpenFoodFacts.",
+                    f"⚠️ Código *{ean_code}* não encontrado no OpenFoodFacts.\n\n"
+                    "Como se chama o produto? Vou estimar os valores nutricionais.",
                     parse_mode=ParseMode.MARKDOWN,
                 )
-                return ConversationHandler.END
+                return _AWAITING_EAN_FALLBACK_NAME
             context.user_data["pending_barcode_item"] = result
             await update.message.reply_text(
                 f"Encontrei: *{result.name.title()}*\nQuantas unidades comeste?",
@@ -276,6 +279,7 @@ class NutritionMixin:
         """Callback or /cancelar: user cancelled food entry or preset creation."""
         context.user_data.pop("pending_food", None)
         context.user_data.pop("pending_barcode_item", None)
+        context.user_data.pop("pending_ean_code", None)
         context.user_data.pop("pending_preset", None)
         context.user_data.pop("pending_preset_multiplier", None)
         context.user_data.pop("pending_preset_name", None)
@@ -488,6 +492,46 @@ class NutritionMixin:
         context.user_data.pop("pending_barcode_item", None)
 
         msg = format_food_confirmation([scaled_item])
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ Confirmar", callback_data="food_confirm"),
+                InlineKeyboardButton("❌ Cancelar", callback_data="food_cancel"),
+            ]
+        ])
+        await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
+        return _AWAITING_CONFIRMATION
+
+    async def _handle_ean_fallback_name(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """User provided a product name after EAN lookup failed — run LLM estimation."""
+        from ..formatters import format_food_confirmation
+        product_name = (update.message.text or "").strip()
+        if not product_name:
+            await update.message.reply_text("Por favor escreve o nome do produto.")
+            return _AWAITING_EAN_FALLBACK_NAME
+
+        ean_code = context.user_data.pop("pending_ean_code", None)
+        await update.message.reply_text("⏳ A estimar valores nutricionais...")
+        try:
+            items = self._nutrition_service.process_text(product_name)
+        except Exception as exc:
+            logger.error("EAN fallback process_text failed: %s", exc, exc_info=True)
+            await update.message.reply_text("❌ Erro ao estimar valores. Tenta /comi novamente.")
+            return ConversationHandler.END
+
+        if not items:
+            await update.message.reply_text(
+                "Não consegui identificar o produto. Tenta /comi com uma descrição mais detalhada."
+            )
+            return ConversationHandler.END
+
+        # Tag the barcode on the first item so it's stored for reference
+        if ean_code and items:
+            from dataclasses import replace as dc_replace
+            items[0] = dc_replace(items[0], barcode=ean_code)
+
+        context.user_data["pending_food"] = items
+        context.user_data["pending_cache_query"] = product_name.lower().strip()
+        msg = format_food_confirmation(items)
         keyboard = InlineKeyboardMarkup([
             [
                 InlineKeyboardButton("✅ Confirmar", callback_data="food_confirm"),
