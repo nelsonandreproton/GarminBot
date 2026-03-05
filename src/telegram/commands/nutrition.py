@@ -20,6 +20,7 @@ _AWAITING_CONFIRMATION = 0
 _AWAITING_BARCODE_QUANTITY = 1
 _AWAITING_PRESET_ITEMS = 2
 _AWAITING_EAN_FALLBACK_NAME = 3
+_AWAITING_EAN_FALLBACK_QUANTITY = 4
 
 
 class NutritionMixin:
@@ -280,6 +281,8 @@ class NutritionMixin:
         context.user_data.pop("pending_food", None)
         context.user_data.pop("pending_barcode_item", None)
         context.user_data.pop("pending_ean_code", None)
+        context.user_data.pop("pending_ean_nutrition", None)
+        context.user_data.pop("pending_ean_product_name", None)
         context.user_data.pop("pending_preset", None)
         context.user_data.pop("pending_preset_multiplier", None)
         context.user_data.pop("pending_preset_name", None)
@@ -502,36 +505,78 @@ class NutritionMixin:
         return _AWAITING_CONFIRMATION
 
     async def _handle_ean_fallback_name(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-        """User provided a product name after EAN lookup failed — run LLM estimation."""
-        from ..formatters import format_food_confirmation
+        """User provided a product name after EAN lookup failed — fetch per-100g data, then ask quantity."""
         product_name = (update.message.text or "").strip()
         if not product_name:
             await update.message.reply_text("Por favor escreve o nome do produto.")
             return _AWAITING_EAN_FALLBACK_NAME
 
-        ean_code = context.user_data.pop("pending_ean_code", None)
-        await update.message.reply_text("⏳ A estimar valores nutricionais...")
+        await update.message.reply_text("⏳ A procurar/estimar valores nutricionais...")
         try:
-            items = self._nutrition_service.process_text(product_name)
+            nutrition = self._nutrition_service.get_nutrition_per_100g(product_name)
         except Exception as exc:
-            logger.error("EAN fallback process_text failed: %s", exc, exc_info=True)
+            logger.error("EAN fallback get_nutrition_per_100g failed: %s", exc, exc_info=True)
             await update.message.reply_text("❌ Erro ao estimar valores. Tenta /comi novamente.")
             return ConversationHandler.END
 
-        if not items:
+        if nutrition is None:
             await update.message.reply_text(
-                "Não consegui identificar o produto. Tenta /comi com uma descrição mais detalhada."
+                "Não consegui encontrar o produto. Tenta /comi com uma descrição mais detalhada."
             )
             return ConversationHandler.END
 
-        # Tag the barcode on the first item so it's stored for reference
-        if ean_code and items:
-            from dataclasses import replace as dc_replace
-            items[0] = dc_replace(items[0], barcode=ean_code)
+        context.user_data["pending_ean_nutrition"] = nutrition
+        context.user_data["pending_ean_product_name"] = product_name
+        await update.message.reply_text(
+            f"*{nutrition.product_name.title()}*\n"
+            f"Valores por 100g: {int(nutrition.calories_per_100g or 0)} kcal | "
+            f"P: {int(nutrition.protein_per_100g or 0)}g | "
+            f"G: {int(nutrition.fat_per_100g or 0)}g | "
+            f"HC: {int(nutrition.carbs_per_100g or 0)}g\n\n"
+            "Quantos gramas comeste? _(1 dose = 100g)_",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return _AWAITING_EAN_FALLBACK_QUANTITY
 
-        context.user_data["pending_food"] = items
-        context.user_data["pending_cache_query"] = product_name.lower().strip()
-        msg = format_food_confirmation(items)
+    async def _handle_ean_fallback_quantity(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+        """User specified grams for the EAN fallback product — scale and show confirmation."""
+        from ..formatters import format_food_confirmation
+        text = (update.message.text or "").strip()
+        try:
+            grams = float(text.replace(",", "."))
+            if grams <= 0:
+                raise ValueError
+        except ValueError:
+            await update.message.reply_text("Por favor responde com o número de gramas (ex: 20, 150, 0.5).")
+            return _AWAITING_EAN_FALLBACK_QUANTITY
+
+        nutrition = context.user_data.pop("pending_ean_nutrition", None)
+        product_name = context.user_data.pop("pending_ean_product_name", None)
+        ean_code = context.user_data.pop("pending_ean_code", None)
+
+        if nutrition is None:
+            await update.message.reply_text("❌ Sessão expirada. Tenta /comi ean novamente.")
+            return ConversationHandler.END
+
+        nutrients = self._nutrition_service._calculate_nutrients(nutrition, grams, "g")
+        from ...nutrition.service import FoodItemResult
+        item = FoodItemResult(
+            name=nutrition.product_name,
+            quantity=grams,
+            unit="g",
+            calories=nutrients.get("calories"),
+            protein_g=nutrients.get("protein_g"),
+            fat_g=nutrients.get("fat_g"),
+            carbs_g=nutrients.get("carbs_g"),
+            fiber_g=nutrients.get("fiber_g"),
+            source="llm_estimate",
+            barcode=ean_code,
+        )
+
+        context.user_data["pending_food"] = [item]
+        if product_name:
+            context.user_data["pending_cache_query"] = product_name.lower().strip()
+        msg = format_food_confirmation([item])
         keyboard = InlineKeyboardMarkup([
             [
                 InlineKeyboardButton("✅ Confirmar", callback_data="food_confirm"),

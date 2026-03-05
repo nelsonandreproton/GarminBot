@@ -76,6 +76,24 @@ class NutritionService:
             ))
         return results
 
+    def get_nutrition_per_100g(self, name: str) -> NutritionData | None:
+        """Return per-100g nutritional data for a product name.
+
+        Tries OpenFoodFacts first, falls back to LLM estimate.
+        Does NOT scale by any quantity — caller is responsible for that.
+
+        Args:
+            name: Product name (e.g. "queijo cubos com alho").
+
+        Returns:
+            NutritionData with per-100g values, or None on failure.
+        """
+        nutrition = search_product(name)
+        if not nutrition:
+            logger.info("OFF search miss for '%s', using LLM estimate", name)
+            nutrition = self._estimate_as_nutrition_data(name)
+        return nutrition
+
     def lookup_ean(self, code: str) -> FoodItemResult | None:
         """Look up nutrition by EAN/barcode string directly (no image decoding).
 

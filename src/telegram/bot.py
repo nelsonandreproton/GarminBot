@@ -45,6 +45,7 @@ from .commands import (
     _AWAITING_BARCODE_QUANTITY,
     _AWAITING_CONFIRMATION,
     _AWAITING_EAN_FALLBACK_NAME,
+    _AWAITING_EAN_FALLBACK_QUANTITY,
     _AWAITING_PRESET_ITEMS,
 )
 
@@ -249,6 +250,9 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
                 ],
                 _AWAITING_EAN_FALLBACK_NAME: [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_ean_fallback_name),
+                ],
+                _AWAITING_EAN_FALLBACK_QUANTITY: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_ean_fallback_quantity),
                 ],
                 _AWAITING_PRESET_ITEMS: [
                     MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_preset_item),
