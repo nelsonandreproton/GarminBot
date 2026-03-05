@@ -76,6 +76,34 @@ class NutritionService:
             ))
         return results
 
+    def lookup_ean(self, code: str) -> FoodItemResult | None:
+        """Look up nutrition by EAN/barcode string directly (no image decoding).
+
+        Args:
+            code: Barcode string (e.g. "5601312308027").
+
+        Returns:
+            FoodItemResult or None if product not found in OpenFoodFacts.
+        """
+        nutrition = lookup_barcode(code)
+        if not nutrition:
+            logger.info("EAN %s not found in OpenFoodFacts", code)
+            return None
+
+        nutrients = self._calculate_nutrients(nutrition, 1.0, "un")
+        return FoodItemResult(
+            name=nutrition.product_name,
+            quantity=1.0,
+            unit="un",
+            calories=nutrients.get("calories"),
+            protein_g=nutrients.get("protein_g"),
+            fat_g=nutrients.get("fat_g"),
+            carbs_g=nutrients.get("carbs_g"),
+            fiber_g=nutrients.get("fiber_g"),
+            source="barcode",
+            barcode=code,
+        )
+
     def process_barcode(self, image_bytes: bytes) -> FoodItemResult | None:
         """Decode barcode from image and look up nutrition.
 

@@ -123,3 +123,58 @@ def test_process_barcode_not_in_off(mock_decode, mock_lookup):
     svc = NutritionService("fake-key")
     result = svc.process_barcode(b"image")
     assert result is None
+
+
+# ------------------------------------------------------------------ #
+# lookup_ean                                                           #
+# ------------------------------------------------------------------ #
+
+@patch("src.nutrition.service.lookup_barcode")
+def test_lookup_ean_found(mock_lookup):
+    """Valid EAN returns FoodItemResult with source='barcode'."""
+    mock_lookup.return_value = _make_nutrition(kcal=200.0, serving=30.0)
+    mock_lookup.return_value = NutritionData(
+        product_name="Pudim Proteína",
+        calories_per_100g=148.0,
+        protein_per_100g=19.0,
+        fat_per_100g=3.0,
+        carbs_per_100g=10.0,
+        fiber_per_100g=1.0,
+        serving_size_g=125.0,
+    )
+
+    svc = NutritionService("fake-key")
+    result = svc.lookup_ean("5601312308027")
+
+    assert result is not None
+    assert result.source == "barcode"
+    assert result.barcode == "5601312308027"
+    assert result.name == "Pudim Proteína"
+    assert result.quantity == 1.0
+    assert result.unit == "un"
+    # calories: 148 * (125/100) = 185.0
+    assert result.calories == pytest.approx(185.0)
+    mock_lookup.assert_called_once_with("5601312308027")
+
+
+@patch("src.nutrition.service.lookup_barcode")
+def test_lookup_ean_not_found(mock_lookup):
+    """EAN not in OpenFoodFacts returns None."""
+    mock_lookup.return_value = None
+
+    svc = NutritionService("fake-key")
+    result = svc.lookup_ean("9999999999999")
+
+    assert result is None
+    mock_lookup.assert_called_once_with("9999999999999")
+
+
+@patch("src.nutrition.service.lookup_barcode")
+def test_lookup_ean_does_not_call_decode_barcode(mock_lookup):
+    """lookup_ean must NOT try to decode any image — no decode_barcode call."""
+    mock_lookup.return_value = None
+
+    with patch("src.nutrition.service.decode_barcode") as mock_decode:
+        svc = NutritionService("fake-key")
+        svc.lookup_ean("1234567890123")
+        mock_decode.assert_not_called()

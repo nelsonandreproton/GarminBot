@@ -45,11 +45,39 @@ class NutritionMixin:
                 "Ou usa o nome de um preset guardado:\n"
                 "  /comi Lanche\n"
                 "  /comi 1.5 Lanche _(multiplica quantidades)_\n\n"
+                "Ou pesquisa por código de barras EAN:\n"
+                "  /comi ean 5601312308027\n\n"
                 "Lista de presets: /preset list"
             )
             return ConversationHandler.END
 
         context.user_data["pending_date"] = target_date
+
+        # ---- EAN lookup: /comi ean <code> ----
+        if args and args[0].lower() == "ean":
+            if len(args) < 2:
+                await update.message.reply_text("Uso: /comi ean <código>\nExemplo: /comi ean 5601312308027")
+                return ConversationHandler.END
+            if self._nutrition_service is None:
+                await update.message.reply_text(
+                    "⚠️ Funcionalidade de nutrição não configurada. Adiciona GROQ_API_KEY ao ficheiro .env."
+                )
+                return ConversationHandler.END
+            ean_code = args[1].strip()
+            await update.message.reply_text("🔍 A procurar produto...")
+            result = self._nutrition_service.lookup_ean(ean_code)
+            if result is None:
+                await update.message.reply_text(
+                    f"❌ Produto com código *{ean_code}* não encontrado no OpenFoodFacts.",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+                return ConversationHandler.END
+            context.user_data["pending_barcode_item"] = result
+            await update.message.reply_text(
+                f"Encontrei: *{result.name.title()}*\nQuantas unidades comeste?",
+                parse_mode=ParseMode.MARKDOWN,
+            )
+            return _AWAITING_BARCODE_QUANTITY
 
         # ---- Check if text matches a saved meal preset (case-insensitive) ----
         preset = self._repo.get_meal_preset_by_name(text)
