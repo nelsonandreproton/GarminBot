@@ -57,11 +57,37 @@ def test_lookup_barcode_not_found(mock_get):
 
 
 @patch("src.nutrition.openfoodfacts.requests.get")
-def test_lookup_barcode_status_zero(mock_get):
+def test_lookup_barcode_status_zero_no_data(mock_get):
+    """status=0 with no product/nutriments → None."""
     mock_get.return_value = _mock_response({"status": 0})
 
     result = lookup_barcode("1234567890123")
     assert result is None
+
+
+@patch("src.nutrition.openfoodfacts.requests.get")
+def test_lookup_barcode_status_zero_with_nutriments(mock_get):
+    """status=0 (incomplete entry) but nutriments present → still usable."""
+    data = {
+        "status": 0,
+        "product": {
+            "product_name": "Pudim Proteína",
+            "nutriments": {
+                "energy-kcal_100g": 148.0,
+                "proteins_100g": 19.0,
+                "fat_100g": 3.0,
+                "carbohydrates_100g": 10.0,
+                "fiber_100g": 1.0,
+            },
+        },
+    }
+    mock_get.return_value = _mock_response(data)
+
+    result = lookup_barcode("5607047010360")
+
+    assert result is not None
+    assert result.product_name == "Pudim Proteína"
+    assert result.calories_per_100g == 148.0
 
 
 @patch("src.nutrition.openfoodfacts.requests.get")

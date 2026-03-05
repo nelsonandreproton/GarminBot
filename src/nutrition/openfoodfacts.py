@@ -74,12 +74,20 @@ def lookup_barcode(barcode: str) -> NutritionData | None:
     try:
         resp = requests.get(url, headers=_HEADERS, timeout=_TIMEOUT)
         if resp.status_code == 404:
+            logger.info("OFF barcode %s: 404 not found", barcode)
             return None
         resp.raise_for_status()
         data = resp.json()
-        if data.get("status") != 1:
-            return None
-        return _parse_nutriments(data.get("product", {}))
+        product = data.get("product") or {}
+        status = data.get("status")
+        if status != 1:
+            # status=0 means the product entry is incomplete (e.g. missing images/categories)
+            # but it may still have valid nutrition data — try to use it.
+            if not product or not product.get("nutriments"):
+                logger.info("OFF barcode %s: status=%s, no usable nutrition data", barcode, status)
+                return None
+            logger.info("OFF barcode %s: status=%s (incomplete), but nutrition data present — using it", barcode, status)
+        return _parse_nutriments(product)
     except requests.RequestException as exc:
         logger.warning("OpenFoodFacts barcode lookup failed: %s", exc)
         return None
