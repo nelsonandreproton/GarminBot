@@ -42,7 +42,9 @@ class NutritionMixin:
             await update.message.reply_text(
                 "Uso: /comi 2 ovos e 1 torrada\n"
                 "      /comi ontem 2 ovos e 1 torrada\n\n"
-                "Ou usa o nome de um preset guardado (ex: /comi Lanche).\n"
+                "Ou usa o nome de um preset guardado:\n"
+                "  /comi Lanche\n"
+                "  /comi 1.5 Lanche _(multiplica quantidades)_\n\n"
                 "Lista de presets: /preset list"
             )
             return ConversationHandler.END
@@ -51,12 +53,30 @@ class NutritionMixin:
 
         # ---- Check if text matches a saved meal preset (case-insensitive) ----
         preset = self._repo.get_meal_preset_by_name(text)
+        multiplier = 1.0
+
+        # If no direct match, try parsing a leading number as a multiplier
+        if preset is None and args:
+            first_token = args[0].replace(",", ".")
+            try:
+                candidate = float(first_token)
+                if candidate > 0:
+                    preset_name_part = " ".join(args[1:]).strip()
+                    if preset_name_part:
+                        candidate_preset = self._repo.get_meal_preset_by_name(preset_name_part)
+                        if candidate_preset is not None:
+                            preset = candidate_preset
+                            multiplier = candidate
+            except ValueError:
+                pass
+
         if preset is not None:
             if not preset.items:
                 await update.message.reply_text(f"❌ O preset \"{preset.name}\" está vazio.")
                 return ConversationHandler.END
             context.user_data["pending_preset"] = preset
-            msg = format_meal_preset_confirmation(preset.name, preset.items)
+            context.user_data["pending_preset_multiplier"] = multiplier
+            msg = format_meal_preset_confirmation(preset.name, preset.items, multiplier=multiplier)
             if target_date != date.today():
                 msg += f"\n\n📅 A registar em: *{target_date.strftime('%d/%m/%Y')}*"
             keyboard = InlineKeyboardMarkup([
@@ -182,26 +202,32 @@ class NutritionMixin:
             await query.edit_message_text("❌ Sessão expirada. Tenta /comi novamente.")
             return ConversationHandler.END
 
+        multiplier = context.user_data.pop("pending_preset_multiplier", 1.0)
         target_date = context.user_data.pop("pending_date", date.today())
+
+        def _scale(value: float | None) -> float | None:
+            return round(value * multiplier, 1) if value is not None else None
+
         entries = [
             {
                 "name": item.name,
-                "quantity": item.quantity,
+                "quantity": round(item.quantity * multiplier, 2),
                 "unit": item.unit,
-                "calories": item.calories,
-                "protein_g": item.protein_g,
-                "fat_g": item.fat_g,
-                "carbs_g": item.carbs_g,
-                "fiber_g": item.fiber_g,
+                "calories": _scale(item.calories),
+                "protein_g": _scale(item.protein_g),
+                "fat_g": _scale(item.fat_g),
+                "carbs_g": _scale(item.carbs_g),
+                "fiber_g": _scale(item.fiber_g),
                 "source": "meal_preset",
             }
             for item in preset.items
         ]
         self._repo.save_food_entries(target_date, entries)
-        total_cal = sum(item.calories or 0 for item in preset.items)
+        total_cal = sum(_scale(item.calories) or 0 for item in preset.items)
 
         date_label = f" ({target_date.strftime('%d/%m/%Y')})" if target_date != date.today() else ""
-        msg = f"✅ Preset \"{preset.name}\" registado{date_label}! Total: {int(total_cal)} kcal"
+        mult_label = f" ×{multiplier:g}" if multiplier != 1.0 else ""
+        msg = f"✅ Preset \"{preset.name}\"{mult_label} registado{date_label}! Total: {int(total_cal)} kcal"
         from ..formatters import format_remaining_macros
         goals = self._repo.get_goals()
         totals = self._repo.get_daily_nutrition(target_date)
@@ -223,6 +249,7 @@ class NutritionMixin:
         context.user_data.pop("pending_food", None)
         context.user_data.pop("pending_barcode_item", None)
         context.user_data.pop("pending_preset", None)
+        context.user_data.pop("pending_preset_multiplier", None)
         context.user_data.pop("pending_preset_name", None)
         context.user_data.pop("pending_preset_items", None)
         context.user_data.pop("pending_date", None)

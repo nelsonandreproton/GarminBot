@@ -293,3 +293,57 @@ def test_parse_spaces_around_colon():
     result = parse_preset_item_line("1 Iogurte : 80cal 6p 1g 10hc 0f")
     assert result is not None
     assert result["calories"] == 80.0
+
+
+# ------------------------------------------------------------------ #
+# Preset multiplier — format_meal_preset_confirmation with multiplier #
+# ------------------------------------------------------------------ #
+
+def test_format_preset_multiplier_scales_values():
+    """multiplier=1.5 should scale all nutritional values."""
+    items = [_FakeItem("Aveia", 1, "un", 100.0, 10.0, 2.0, 20.0, 4.0)]
+    text = format_meal_preset_confirmation("PA", items, multiplier=1.5)
+    assert "×1.5" in text
+    assert "150 kcal" in text   # 100 * 1.5
+    assert "P: 15g" in text     # 10 * 1.5
+    assert "G: 3g" in text      # 2 * 1.5
+    assert "HC: 30g" in text    # 20 * 1.5
+    assert "F: 6g" in text      # 4 * 1.5
+
+
+def test_format_preset_multiplier_1_no_label():
+    """multiplier=1.0 (default) should NOT show ×1 in the header."""
+    items = [_FakeItem("Banana", 1, "un", 90.0, 1.0, 0.0, 20.0, 2.0)]
+    text = format_meal_preset_confirmation("Snack", items)
+    assert "×" not in text
+    assert "90 kcal" in text
+
+
+def test_format_preset_multiplier_scales_quantity():
+    """Quantity should also be scaled by the multiplier."""
+    items = [_FakeItem("Ovo", 2, "un", 140.0, 12.0, 10.0, 1.0, 0.0)]
+    text = format_meal_preset_confirmation("Ovos", items, multiplier=2.0)
+    assert "(4)" in text        # 2 * 2
+    assert "280 kcal" in text   # 140 * 2
+
+
+def test_format_preset_multiplier_fractional():
+    """Fractional multiplier like 0.5 should halve values."""
+    items = [_FakeItem("Arroz", 1, "un", 200.0, 4.0, 1.0, 40.0, 2.0)]
+    text = format_meal_preset_confirmation("Almoço", items, multiplier=0.5)
+    assert "×0.5" in text
+    assert "100 kcal" in text   # 200 * 0.5
+    assert "P: 2g" in text      # 4 * 0.5
+
+
+def test_format_preset_multiplier_multiple_items():
+    """Multiplier should apply to all items and totals."""
+    items = [
+        _FakeItem("Pudim Proteína", 1, "un", 148.0, 19.0, 3.0, 10.0, 1.0),
+        _FakeItem("Mini Babybell Light", 2, "un", 100.0, 12.0, 6.0, 0.0, 0.0),
+    ]
+    text = format_meal_preset_confirmation("Lanche", items, multiplier=2.0)
+    # Totals: (148+100)*2 = 496
+    assert "496 kcal" in text
+    # Protein: (19+12)*2 = 62
+    assert "P: 62g" in text

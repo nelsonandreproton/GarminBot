@@ -788,17 +788,19 @@ def format_goals(goals: dict[str, float]) -> str:
     return "\n".join(lines)
 
 
-def format_meal_preset_confirmation(preset_name: str, items: list[Any]) -> str:
+def format_meal_preset_confirmation(preset_name: str, items: list[Any], *, multiplier: float = 1.0) -> str:
     """Format a meal preset as a confirmation message (same style as food confirmation).
 
     Args:
         preset_name: The preset name (e.g. "Lanche").
         items: List of MealPresetItem ORM objects (or any object with the same attrs).
+        multiplier: Scale factor for all nutritional values (default 1.0).
 
     Returns:
         Markdown-formatted confirmation string.
     """
-    lines = [f"📝 *Registar preset \"{preset_name}\":*", ""]
+    mult_label = f" ×{multiplier:g}" if multiplier != 1.0 else ""
+    lines = [f"📝 *Registar preset \"{preset_name}\"{mult_label}:*", ""]
     total_cal = 0.0
     total_prot = 0.0
     total_fat = 0.0
@@ -806,12 +808,13 @@ def format_meal_preset_confirmation(preset_name: str, items: list[Any]) -> str:
     total_fiber = 0.0
 
     for i, item in enumerate(items, 1):
-        qty_str = f"{int(item.quantity)}" if item.unit == "un" else f"{item.quantity:g}{item.unit}"
-        cal = item.calories or 0.0
-        prot = item.protein_g or 0.0
-        fat = item.fat_g or 0.0
-        carbs = item.carbs_g or 0.0
-        fiber = item.fiber_g or 0.0
+        qty = (item.quantity or 1.0) * multiplier
+        qty_str = f"{qty:g}" if item.unit == "un" else f"{qty:g}{item.unit}"
+        cal = (item.calories or 0.0) * multiplier
+        prot = (item.protein_g or 0.0) * multiplier
+        fat = (item.fat_g or 0.0) * multiplier
+        carbs = (item.carbs_g or 0.0) * multiplier
+        fiber = (item.fiber_g or 0.0) * multiplier
         total_cal += cal
         total_prot += prot
         total_fat += fat
