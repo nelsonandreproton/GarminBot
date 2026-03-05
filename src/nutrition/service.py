@@ -1,4 +1,11 @@
-"""NutritionService: orchestrates parsing, lookup, fallback, and nutrient calculation."""
+"""NutritionService: orchestrates parsing, lookup, fallback, and nutrient calculation.
+
+Lookup chain for name-based searches:
+  1. OpenFoodFacts  — best coverage for European/Portuguese products
+  2. USDA FoodData Central  — strong for generic ingredients (requires USDA_API_KEY)
+  3. API-Ninjas Nutrition  — NLP-aware generic fallback (requires API_NINJAS_KEY)
+  4. LLM estimate  — last resort when all APIs miss
+"""
 
 from __future__ import annotations
 
@@ -32,15 +39,26 @@ class FoodItemResult:
     fat_g: float | None
     carbs_g: float | None
     fiber_g: float | None
-    source: str  # "openfoodfacts" | "llm_estimate" | "barcode"
+    source: str  # "openfoodfacts" | "usda" | "api_ninjas" | "llm_estimate" | "barcode"
     barcode: str | None = None
 
 
 class NutritionService:
     """Orchestrates food parsing, nutritional lookup, and fallback estimation."""
 
-    def __init__(self, groq_api_key: str) -> None:
+    def __init__(
+        self,
+        groq_api_key: str,
+        usda_api_key: str | None = None,
+        api_ninjas_key: str | None = None,
+    ) -> None:
         self._api_key = groq_api_key
+        self._usda_api_key = usda_api_key
+        self._api_ninjas_key = api_ninjas_key
+
+    # ------------------------------------------------------------------ #
+    # Public API                                                           #
+    # ------------------------------------------------------------------ #
 
     def process_text(self, text: str) -> list[FoodItemResult]:
         """Parse free text and look up nutrition for each item.
@@ -54,14 +72,7 @@ class NutritionService:
         parsed: list[ParsedFoodItem] = parse_food_text(text, self._api_key)
         results = []
         for item in parsed:
-            nutrition = search_product(item.name)
-            if nutrition:
-                source = "openfoodfacts"
-            else:
-                logger.info("OFF not found for '%s', using LLM estimate", item.name)
-                nutrition = self._estimate_as_nutrition_data(item.name)
-                source = "llm_estimate"
-
+            nutrition, source = self._lookup_nutrition(item.name)
             nutrients = self._calculate_nutrients(nutrition, item.quantity, item.unit) if nutrition else {}
             results.append(FoodItemResult(
                 name=item.name,
@@ -79,7 +90,7 @@ class NutritionService:
     def get_nutrition_per_100g(self, name: str) -> NutritionData | None:
         """Return per-100g nutritional data for a product name.
 
-        Tries OpenFoodFacts first, falls back to LLM estimate.
+        Tries the full lookup chain (OFF → USDA → API-Ninjas → LLM).
         Does NOT scale by any quantity — caller is responsible for that.
 
         Args:
@@ -88,11 +99,22 @@ class NutritionService:
         Returns:
             NutritionData with per-100g values, or None on failure.
         """
-        nutrition = search_product(name)
-        if not nutrition:
-            logger.info("OFF search miss for '%s', using LLM estimate", name)
-            nutrition = self._estimate_as_nutrition_data(name)
+        nutrition, _ = self._lookup_nutrition(name)
         return nutrition
+
+    def get_nutrition_with_source(self, name: str) -> tuple[NutritionData | None, str]:
+        """Return per-100g nutritional data and the source label.
+
+        Like get_nutrition_per_100g but also returns which service found the data.
+
+        Args:
+            name: Product name.
+
+        Returns:
+            (NutritionData, source) where source is one of:
+            "openfoodfacts", "usda", "api_ninjas", "llm_estimate".
+        """
+        return self._lookup_nutrition(name)
 
     def lookup_ean(self, code: str) -> FoodItemResult | None:
         """Look up nutrition by EAN/barcode string directly (no image decoding).
@@ -154,6 +176,44 @@ class NutritionService:
             source="barcode",
             barcode=code,
         )
+
+    # ------------------------------------------------------------------ #
+    # Internal lookup chain                                                #
+    # ------------------------------------------------------------------ #
+
+    def _lookup_nutrition(self, name: str) -> tuple[NutritionData | None, str]:
+        """Chain through all nutrition sources for a food name.
+
+        Returns:
+            (NutritionData, source_label) where source_label is one of:
+            "openfoodfacts", "usda", "api_ninjas", "llm_estimate".
+            Returns (None, "llm_estimate") if all sources fail.
+        """
+        # 1. OpenFoodFacts
+        nutrition = search_product(name)
+        if nutrition:
+            return nutrition, "openfoodfacts"
+
+        # 2. USDA FoodData Central
+        if self._usda_api_key:
+            from .usda import search_product as usda_search
+            nutrition = usda_search(name, self._usda_api_key)
+            if nutrition:
+                logger.info("USDA found nutrition for '%s'", name)
+                return nutrition, "usda"
+
+        # 3. API-Ninjas
+        if self._api_ninjas_key:
+            from .api_ninjas import search_product as ninjas_search
+            nutrition = ninjas_search(name, self._api_ninjas_key)
+            if nutrition:
+                logger.info("API-Ninjas found nutrition for '%s'", name)
+                return nutrition, "api_ninjas"
+
+        # 4. LLM estimate (last resort)
+        logger.info("All APIs missed for '%s', using LLM estimate", name)
+        nutrition = self._estimate_as_nutrition_data(name)
+        return nutrition, "llm_estimate"
 
     def _estimate_as_nutrition_data(self, food_name: str) -> NutritionData | None:
         """Ask LLM to estimate nutritional values per 100g."""

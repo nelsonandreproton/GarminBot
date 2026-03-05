@@ -178,3 +178,96 @@ def test_lookup_ean_does_not_call_decode_barcode(mock_lookup):
         svc = NutritionService("fake-key")
         svc.lookup_ean("1234567890123")
         mock_decode.assert_not_called()
+
+
+# ------------------------------------------------------------------ #
+# Fallback chain: OFF → USDA → API-Ninjas → LLM                      #
+# ------------------------------------------------------------------ #
+
+@patch("src.nutrition.usda.search_product")
+@patch("src.nutrition.service.search_product")
+@patch("src.nutrition.service.parse_food_text")
+def test_process_text_usda_fallback(mock_parse, mock_off, mock_usda):
+    """OFF miss + USDA key configured → USDA hit → source='usda'."""
+    mock_parse.return_value = [ParsedFoodItem(name="brown rice", quantity=150, unit="g")]
+    mock_off.return_value = None
+    mock_usda.return_value = _make_nutrition(kcal=111.0, protein=2.6, fat=0.9, carbs=23.0)
+
+    svc = NutritionService("fake-key", usda_api_key="usda-key")
+    results = svc.process_text("150g brown rice")
+
+    assert len(results) == 1
+    assert results[0].source == "usda"
+    assert results[0].calories == pytest.approx(166.5)  # 111 * 1.5
+    mock_usda.assert_called_once_with("brown rice", "usda-key")
+
+
+@patch("src.nutrition.api_ninjas.search_product")
+@patch("src.nutrition.usda.search_product")
+@patch("src.nutrition.service.search_product")
+@patch("src.nutrition.service.parse_food_text")
+def test_process_text_api_ninjas_fallback(mock_parse, mock_off, mock_usda, mock_ninjas):
+    """OFF miss + USDA miss → API-Ninjas hit → source='api_ninjas'."""
+    mock_parse.return_value = [ParsedFoodItem(name="banana", quantity=100, unit="g")]
+    mock_off.return_value = None
+    mock_usda.return_value = None
+    mock_ninjas.return_value = _make_nutrition(kcal=89.0, protein=1.1, fat=0.3, carbs=23.0)
+
+    svc = NutritionService("fake-key", usda_api_key="usda-key", api_ninjas_key="ninjas-key")
+    results = svc.process_text("100g banana")
+
+    assert len(results) == 1
+    assert results[0].source == "api_ninjas"
+    assert results[0].calories == pytest.approx(89.0)  # 100g * 89/100
+    mock_ninjas.assert_called_once_with("banana", "ninjas-key")
+
+
+@patch("src.nutrition.service.NutritionService._estimate_nutrition")
+@patch("src.nutrition.service.search_product")
+@patch("src.nutrition.service.parse_food_text")
+def test_llm_only_used_as_last_resort(mock_parse, mock_off, mock_llm):
+    """With no API keys, LLM is called immediately after OFF miss."""
+    mock_parse.return_value = [ParsedFoodItem(name="unusual food", quantity=1, unit="un")]
+    mock_off.return_value = None
+    mock_llm.return_value = {
+        "calories_per_100g": 200.0, "protein_per_100g": 5.0,
+        "fat_per_100g": 8.0, "carbs_per_100g": 30.0, "fiber_per_100g": 1.0,
+    }
+
+    svc = NutritionService("fake-key")  # no USDA or API-Ninjas keys
+    results = svc.process_text("1 unusual food")
+
+    assert len(results) == 1
+    assert results[0].source == "llm_estimate"
+    mock_llm.assert_called_once()
+
+
+@patch("src.nutrition.service.NutritionService._estimate_nutrition")
+@patch("src.nutrition.service.search_product")
+@patch("src.nutrition.service.parse_food_text")
+def test_usda_key_absent_skips_usda(mock_parse, mock_off, mock_llm):
+    """No USDA key → USDA module never queried."""
+    mock_parse.return_value = [ParsedFoodItem(name="rice", quantity=100, unit="g")]
+    mock_off.return_value = None
+    mock_llm.return_value = {"calories_per_100g": 130.0, "protein_per_100g": 2.0,
+                             "fat_per_100g": 0.3, "carbs_per_100g": 28.0, "fiber_per_100g": 0.4}
+
+    with patch("src.nutrition.usda.requests.get") as mock_usda:
+        svc = NutritionService("fake-key")  # no usda_api_key
+        svc.process_text("100g rice")
+        mock_usda.assert_not_called()
+
+
+@patch("src.nutrition.usda.search_product")
+@patch("src.nutrition.service.search_product")
+def test_get_nutrition_per_100g_uses_chain(mock_off, mock_usda):
+    """get_nutrition_per_100g falls back to USDA when OFF misses."""
+    mock_off.return_value = None
+    mock_usda.return_value = _make_nutrition(kcal=389.0, protein=17.0, fat=7.0, carbs=66.0, fiber=10.0)
+
+    svc = NutritionService("fake-key", usda_api_key="usda-key")
+    result = svc.get_nutrition_per_100g("oats")
+
+    assert result is not None
+    assert result.calories_per_100g == pytest.approx(389.0)
+    mock_usda.assert_called_once_with("oats", "usda-key")

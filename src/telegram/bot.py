@@ -87,7 +87,11 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
         self._nutrition_service = None
         if config.groq_api_key:
             from ..nutrition.service import NutritionService
-            self._nutrition_service = NutritionService(config.groq_api_key)
+            self._nutrition_service = NutritionService(
+                config.groq_api_key,
+                usda_api_key=config.usda_api_key,
+                api_ninjas_key=config.api_ninjas_key,
+            )
 
     # ------------------------------------------------------------------ #
     # Sending                                                               #

@@ -15,6 +15,19 @@ from ..helpers import _is_rate_limited, _parse_date_prefix, safe_command
 
 logger = logging.getLogger(__name__)
 
+_SOURCE_LABELS: dict[str, str] = {
+    "openfoodfacts": " _(OpenFoodFacts)_",
+    "usda": " _(USDA)_",
+    "api_ninjas": " _(API-Ninjas)_",
+    "llm_estimate": " _(estimativa IA)_",
+}
+
+
+def _source_label(source: str) -> str:
+    """Return a Markdown label for the nutrition data source."""
+    return _SOURCE_LABELS.get(source, "")
+
+
 # ConversationHandler states (shared with bot.py for handler registration)
 _AWAITING_CONFIRMATION = 0
 _AWAITING_BARCODE_QUANTITY = 1
@@ -160,6 +173,31 @@ class NutritionMixin:
             await update.message.reply_text("Não consegui identificar alimentos no texto. Tenta ser mais específico.")
             return ConversationHandler.END
 
+        # Single item with unit="un" — user didn't specify grams, so ask before confirming
+        if len(items) == 1 and items[0].unit == "un":
+            try:
+                nutrition = self._nutrition_service.get_nutrition_per_100g(items[0].name)
+            except Exception as exc:
+                logger.error("get_nutrition_per_100g failed for '%s': %s", items[0].name, exc, exc_info=True)
+                nutrition = None
+            if nutrition is not None:
+                item_source = items[0].source
+                context.user_data["pending_ean_nutrition"] = nutrition
+                context.user_data["pending_ean_product_name"] = items[0].name
+                context.user_data["pending_item_source"] = item_source
+                context.user_data["pending_cache_query"] = normalized_query
+                source_label = _source_label(item_source)
+                await update.message.reply_text(
+                    f"*{nutrition.product_name.title()}*{source_label}\n"
+                    f"Valores por 100g: {int(nutrition.calories_per_100g or 0)} kcal | "
+                    f"P: {int(nutrition.protein_per_100g or 0)}g | "
+                    f"G: {int(nutrition.fat_per_100g or 0)}g | "
+                    f"HC: {int(nutrition.carbs_per_100g or 0)}g\n\n"
+                    "Quantos gramas comeste? _(1 dose = 100g)_",
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+                return _AWAITING_EAN_FALLBACK_QUANTITY
+
         context.user_data["pending_food"] = items
         context.user_data["pending_cache_query"] = normalized_query  # save to cache on confirm
         msg = format_food_confirmation(items)
@@ -283,6 +321,7 @@ class NutritionMixin:
         context.user_data.pop("pending_ean_code", None)
         context.user_data.pop("pending_ean_nutrition", None)
         context.user_data.pop("pending_ean_product_name", None)
+        context.user_data.pop("pending_item_source", None)
         context.user_data.pop("pending_preset", None)
         context.user_data.pop("pending_preset_multiplier", None)
         context.user_data.pop("pending_preset_name", None)
@@ -513,9 +552,9 @@ class NutritionMixin:
 
         await update.message.reply_text("⏳ A procurar/estimar valores nutricionais...")
         try:
-            nutrition = self._nutrition_service.get_nutrition_per_100g(product_name)
+            nutrition, item_source = self._nutrition_service.get_nutrition_with_source(product_name)
         except Exception as exc:
-            logger.error("EAN fallback get_nutrition_per_100g failed: %s", exc, exc_info=True)
+            logger.error("EAN fallback get_nutrition_with_source failed: %s", exc, exc_info=True)
             await update.message.reply_text("❌ Erro ao estimar valores. Tenta /comi novamente.")
             return ConversationHandler.END
 
@@ -527,8 +566,10 @@ class NutritionMixin:
 
         context.user_data["pending_ean_nutrition"] = nutrition
         context.user_data["pending_ean_product_name"] = product_name
+        context.user_data["pending_item_source"] = item_source
+        source_label = _source_label(item_source)
         await update.message.reply_text(
-            f"*{nutrition.product_name.title()}*\n"
+            f"*{nutrition.product_name.title()}*{source_label}\n"
             f"Valores por 100g: {int(nutrition.calories_per_100g or 0)} kcal | "
             f"P: {int(nutrition.protein_per_100g or 0)}g | "
             f"G: {int(nutrition.fat_per_100g or 0)}g | "
@@ -553,9 +594,10 @@ class NutritionMixin:
         nutrition = context.user_data.pop("pending_ean_nutrition", None)
         product_name = context.user_data.pop("pending_ean_product_name", None)
         ean_code = context.user_data.pop("pending_ean_code", None)
+        item_source = context.user_data.pop("pending_item_source", "llm_estimate")
 
         if nutrition is None:
-            await update.message.reply_text("❌ Sessão expirada. Tenta /comi ean novamente.")
+            await update.message.reply_text("❌ Sessão expirada. Tenta /comi novamente.")
             return ConversationHandler.END
 
         nutrients = self._nutrition_service._calculate_nutrients(nutrition, grams, "g")
@@ -569,7 +611,7 @@ class NutritionMixin:
             fat_g=nutrients.get("fat_g"),
             carbs_g=nutrients.get("carbs_g"),
             fiber_g=nutrients.get("fiber_g"),
-            source="llm_estimate",
+            source=item_source,
             barcode=ean_code,
         )
 
