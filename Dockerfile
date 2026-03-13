@@ -27,11 +27,6 @@ VOLUME ["/app/data", "/app/logs"]
 USER garminbot
 
 HEALTHCHECK --interval=60s --timeout=5s --start-period=30s --retries=3 \
-    CMD python -c "\
-import urllib.request, urllib.error, sys;\
-try: urllib.request.urlopen('http://localhost:8080/health', timeout=4)\
-except urllib.error.HTTPError: pass\
-except Exception: sys.exit(1)\
-"
+    CMD pgrep -f "src.main" > /dev/null || exit 1
 
 CMD ["python", "-m", "src.main"]
