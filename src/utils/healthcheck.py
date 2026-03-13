@@ -23,9 +23,11 @@ def _make_handler(get_status: callable):
                 self.end_headers()
                 return
             status = get_status()
-            code = 200 if status.get("ok") else 503
+            # Always 200 while the process is alive — "ok" field in the body
+            # carries the sync-freshness signal for dashboards/alerts.
+            # 503 is reserved for when the server itself cannot respond (unreachable).
             body = json.dumps(status, default=str).encode()
-            self.send_response(code)
+            self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(body)
