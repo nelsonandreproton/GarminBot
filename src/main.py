@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 from datetime import date, timedelta
@@ -140,6 +141,20 @@ def run() -> None:
 
     # Build Telegram application
     app = tg_bot.build_application()
+
+    # CNCSearch: register /canticos handler if configured
+    _cncsearch_db = os.environ.get("CNCSEARCH_DATABASE_PATH")
+    if _cncsearch_db:
+        try:
+            from cncsearch.telegram.handler import register_canticos_handler
+            register_canticos_handler(
+                app,
+                db_path=_cncsearch_db,
+                embedding_provider=os.environ.get("CNCSEARCH_EMBEDDING_PROVIDER", "jina"),
+                jina_api_key=os.environ.get("CNCSEARCH_JINA_API_KEY"),
+            )
+        except ImportError:
+            logger.warning("CNCSearch not available — /canticos disabled (PYTHONPATH set?)")
 
     # Register commands with BotFather
     asyncio.get_event_loop().run_until_complete(tg_bot.register_commands())
