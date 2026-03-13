@@ -302,7 +302,8 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
             BotCommand("treinei", "Registar treino feito (ex: /treinei Bench 4x8)"),
             BotCommand("progresso", "Ver histórico de exercício (ex: /progresso bench press)"),
             BotCommand("server_status", "Estado atual do servidor Hetzner"),
-            BotCommand("canticos", "Pesquisar cânticos (ex: /canticos João 3:16)"),
+            BotCommand("canticos", "Cânticos do Caminho (ex: /canticos João 3:16)"),
+            BotCommand("canticos_paroquia", "Cânticos da Paróquia (ex: /canticos_paroquia João 3:16)"),
         ]
         await bot.set_my_commands(commands)
         logger.info("Telegram commands registered with BotFather")
