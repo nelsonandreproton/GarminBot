@@ -13,8 +13,9 @@ cd "$SCRIPT_DIR"
 
 echo "=== GarminBot Deploy ==="
 
-echo "[1/3] Pulling latest code..."
-git pull
+echo "[1/3] Syncing to origin/main..."
+git fetch origin
+git reset --hard origin/main
 
 echo "[2/3] Rebuilding and restarting garminbot..."
 docker compose -f "$COMPOSE_FILE" up -d --build garminbot
