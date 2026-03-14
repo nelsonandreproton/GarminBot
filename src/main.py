@@ -109,13 +109,8 @@ def run() -> None:
     tg_bot = TelegramBot(config, repo, garmin_sync_callback=sync_callback, garmin_backfill_callback=backfill_callback, garmin_client=garmin)
     tg_bot._garmin_report = make_report_callback(repo, tg_bot)
 
-    # Health checks (non-fatal for Garmin/Telegram)
-    _run_health_checks(garmin, repo, config.telegram_bot_token, int(config.telegram_chat_id))
-
-    # Startup backfill: fill any gaps in the last 7 days
-    _run_startup_backfill(garmin, repo)
-
-    # Start health check server if configured
+    # Start health check server early so the container healthcheck succeeds
+    # during the blocking startup tasks (Garmin auth, backfill, etc.)
     if config.health_port:
         from .utils.healthcheck import start_health_server
         import time as _time
@@ -138,6 +133,12 @@ def run() -> None:
             }
 
         start_health_server(config.health_port, _get_health_status)
+
+    # Health checks (non-fatal for Garmin/Telegram)
+    _run_health_checks(garmin, repo, config.telegram_bot_token, int(config.telegram_chat_id))
+
+    # Startup backfill: fill any gaps in the last 7 days
+    _run_startup_backfill(garmin, repo)
 
     # Build Telegram application
     app = tg_bot.build_application()
