@@ -89,6 +89,33 @@ def run() -> None:
 
     garmin = GarminClient(config.garmin_email, config.garmin_password)
 
+    # Start health check server early so Docker's healthcheck passes during slow startup
+    if config.health_port:
+        from .utils.healthcheck import start_health_server
+        import time as _time
+        _startup_time = _time.monotonic()
+
+        def _get_health_status():
+            last = repo.get_last_successful_sync()
+            last_sync_dt = last.sync_date if last else None
+            from datetime import UTC, datetime
+            if last_sync_dt:
+                # Handle both naive (SQLite) and aware datetimes
+                if last_sync_dt.tzinfo is None:
+                    last_sync_dt = last_sync_dt.replace(tzinfo=UTC)
+                age_hours = (datetime.now(UTC) - last_sync_dt).total_seconds() / 3600
+                ok = age_hours < 48
+            else:
+                ok = False
+            return {
+                "status": "ok" if ok else "degraded",
+                "ok": ok,
+                "last_sync": str(last_sync_dt) if last_sync_dt else None,
+                "uptime_seconds": int(_time.monotonic() - _startup_time),
+            }
+
+        start_health_server(config.health_port, _get_health_status)
+
     def sync_callback() -> None:
         """Used by /sync command to trigger a manual sync."""
         make_sync_job(garmin, repo)()
@@ -114,30 +141,6 @@ def run() -> None:
 
     # Startup backfill: fill any gaps in the last 7 days
     _run_startup_backfill(garmin, repo)
-
-    # Start health check server if configured
-    if config.health_port:
-        from .utils.healthcheck import start_health_server
-        import time as _time
-        _startup_time = _time.monotonic()
-
-        def _get_health_status():
-            last = repo.get_last_successful_sync()
-            last_sync_dt = last.sync_date if last else None
-            from datetime import UTC, datetime
-            if last_sync_dt:
-                age_hours = (datetime.now(UTC) - last_sync_dt.replace(tzinfo=UTC)).total_seconds() / 3600
-                ok = age_hours < 48
-            else:
-                ok = False
-            return {
-                "status": "ok" if ok else "degraded",
-                "ok": ok,
-                "last_sync": str(last_sync_dt) if last_sync_dt else None,
-                "uptime_seconds": int(_time.monotonic() - _startup_time),
-            }
-
-        start_health_server(config.health_port, _get_health_status)
 
     # Build Telegram application
     app = tg_bot.build_application()
