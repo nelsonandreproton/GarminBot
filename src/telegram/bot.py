@@ -211,37 +211,45 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
         """Build and configure the telegram Application with all command handlers."""
         app = Application.builder().token(self._config.telegram_bot_token).build()
 
-        app.add_handler(CommandHandler("hoje", self._cmd_hoje))
-        app.add_handler(CommandHandler("ontem", self._cmd_ontem))
-        app.add_handler(CommandHandler("semana", self._cmd_semana))
-        app.add_handler(CommandHandler("mes", self._cmd_mes))
-        app.add_handler(CommandHandler("sync", self._cmd_sync))
-        app.add_handler(CommandHandler("status", self._cmd_status))
-        app.add_handler(CommandHandler("ajuda", self._cmd_ajuda))
-        app.add_handler(CommandHandler("help", self._cmd_ajuda))
-        app.add_handler(CommandHandler("historico", self._cmd_historico))
-        app.add_handler(CommandHandler("exportar", self._cmd_exportar))
-        app.add_handler(CommandHandler("backfill", self._cmd_backfill))
-        app.add_handler(CommandHandler("objetivo", self._cmd_objetivo))
-        app.add_handler(CommandHandler("peso", self._cmd_peso))
-        app.add_handler(CommandHandler("sync_peso", self._cmd_sync_peso))
-        app.add_handler(CommandHandler("barriga", self._cmd_barriga))
-        app.add_handler(CommandHandler("agua", self._cmd_agua))
-        app.add_handler(CommandHandler("nutricao", self._cmd_nutricao))
-        app.add_handler(CommandHandler("dieta", self._cmd_nutricao))
-        app.add_handler(CommandHandler("apagar", self._cmd_apagar))
-        app.add_handler(CommandHandler("sync_treino", self._cmd_sync_treino))
-        app.add_handler(CommandHandler("equipamento", self._cmd_equipamento))
-        app.add_handler(CommandHandler("treinei", self._cmd_treinei))
-        app.add_handler(CommandHandler("progresso", self._cmd_progresso))
-        app.add_handler(CommandHandler("sync_atividades", self._cmd_sync_atividades))
+        # Defense-in-depth: drop all messages from unauthorized chats at the
+        # framework level, before any handler code runs.  Each handler still
+        # calls _auth_check() internally, so this is an extra safety net.
+        chat_filter = filters.Chat(chat_id=self._chat_id)
+
+        def _cmd(command: str, handler):
+            return CommandHandler(command, handler, filters=chat_filter)
+
+        app.add_handler(_cmd("hoje", self._cmd_hoje))
+        app.add_handler(_cmd("ontem", self._cmd_ontem))
+        app.add_handler(_cmd("semana", self._cmd_semana))
+        app.add_handler(_cmd("mes", self._cmd_mes))
+        app.add_handler(_cmd("sync", self._cmd_sync))
+        app.add_handler(_cmd("status", self._cmd_status))
+        app.add_handler(_cmd("ajuda", self._cmd_ajuda))
+        app.add_handler(_cmd("help", self._cmd_ajuda))
+        app.add_handler(_cmd("historico", self._cmd_historico))
+        app.add_handler(_cmd("exportar", self._cmd_exportar))
+        app.add_handler(_cmd("backfill", self._cmd_backfill))
+        app.add_handler(_cmd("objetivo", self._cmd_objetivo))
+        app.add_handler(_cmd("peso", self._cmd_peso))
+        app.add_handler(_cmd("sync_peso", self._cmd_sync_peso))
+        app.add_handler(_cmd("barriga", self._cmd_barriga))
+        app.add_handler(_cmd("agua", self._cmd_agua))
+        app.add_handler(_cmd("nutricao", self._cmd_nutricao))
+        app.add_handler(_cmd("dieta", self._cmd_nutricao))
+        app.add_handler(_cmd("apagar", self._cmd_apagar))
+        app.add_handler(_cmd("sync_treino", self._cmd_sync_treino))
+        app.add_handler(_cmd("equipamento", self._cmd_equipamento))
+        app.add_handler(_cmd("treinei", self._cmd_treinei))
+        app.add_handler(_cmd("progresso", self._cmd_progresso))
+        app.add_handler(_cmd("sync_atividades", self._cmd_sync_atividades))
 
         # Nutrition conversation (text entry + barcode + meal presets)
         conv = ConversationHandler(
             entry_points=[
-                CommandHandler("comi", self._cmd_comi),
-                CommandHandler("preset", self._cmd_preset),
-                MessageHandler(filters.PHOTO, self._handle_photo),
+                CommandHandler("comi", self._cmd_comi, filters=chat_filter),
+                CommandHandler("preset", self._cmd_preset, filters=chat_filter),
+                MessageHandler(filters.PHOTO & chat_filter, self._handle_photo),
             ],
             states={
                 _AWAITING_CONFIRMATION: [
@@ -250,22 +258,22 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
                     CallbackQueryHandler(self._cancel_food, pattern="^food_cancel$"),
                 ],
                 _AWAITING_BARCODE_QUANTITY: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_barcode_quantity),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND & chat_filter, self._handle_barcode_quantity),
                 ],
                 _AWAITING_EAN_FALLBACK_NAME: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_ean_fallback_name),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND & chat_filter, self._handle_ean_fallback_name),
                 ],
                 _AWAITING_EAN_FALLBACK_QUANTITY: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_ean_fallback_quantity),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND & chat_filter, self._handle_ean_fallback_quantity),
                 ],
                 _AWAITING_PRESET_ITEMS: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_preset_item),
-                    CommandHandler("done", self._cmd_preset_done),
+                    MessageHandler(filters.TEXT & ~filters.COMMAND & chat_filter, self._handle_preset_item),
+                    CommandHandler("done", self._cmd_preset_done, filters=chat_filter),
                     CallbackQueryHandler(self._save_preset, pattern="^preset_save$"),
                     CallbackQueryHandler(self._cancel_food, pattern="^food_cancel$"),
                 ],
             },
-            fallbacks=[CommandHandler("cancelar", self._cancel_food)],
+            fallbacks=[CommandHandler("cancelar", self._cancel_food, filters=chat_filter)],
             conversation_timeout=600,
         )
         app.add_handler(conv)
