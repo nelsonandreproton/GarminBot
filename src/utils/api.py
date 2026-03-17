@@ -194,7 +194,7 @@ def start_api_server(port: int, api_key: str, repo) -> threading.Thread:
         The daemon thread (already started).
     """
     handler = _make_handler(api_key, repo)
-    server = HTTPServer(("0.0.0.0", port), handler)
+    server = HTTPServer(("127.0.0.1", port), handler)
 
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
