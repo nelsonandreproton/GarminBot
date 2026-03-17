@@ -115,6 +115,14 @@ def run() -> None:
     # Startup backfill: fill any gaps in the last 7 days
     _run_startup_backfill(garmin, repo)
 
+    # Start data API server if configured
+    if config.garmin_api_port:
+        if not config.garmin_api_key:
+            logger.warning("GARMIN_API_PORT set but GARMIN_API_KEY is missing — API disabled")
+        else:
+            from .utils.api import start_api_server
+            start_api_server(config.garmin_api_port, config.garmin_api_key, repo)
+
     # Start health check server if configured
     if config.health_port:
         from .utils.healthcheck import start_health_server

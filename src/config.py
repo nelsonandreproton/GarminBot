@@ -39,6 +39,8 @@ class Config:
     wake_check_interval_minutes: int
     wake_check_start: str
     wake_check_end: str
+    garmin_api_port: int | None
+    garmin_api_key: str | None
 
     # Derived fields
     sync_hour: int = field(init=False)
@@ -121,6 +123,16 @@ def load_config() -> Config:
     wake_check_start = os.getenv("WAKE_CHECK_START", "05:00")
     wake_check_end = os.getenv("WAKE_CHECK_END", "12:00")
 
+    # Data API: optional read-only HTTP API for external integrations
+    garmin_api_port_raw = os.getenv("GARMIN_API_PORT")
+    garmin_api_port: int | None = None
+    if garmin_api_port_raw is not None:
+        try:
+            garmin_api_port = int(garmin_api_port_raw)
+        except ValueError:
+            raise ConfigError(f"GARMIN_API_PORT must be an integer, got: {garmin_api_port_raw!r}")
+    garmin_api_key = os.getenv("GARMIN_API_KEY") or None
+
     return Config(
         garmin_email=required["GARMIN_EMAIL"],  # type: ignore[arg-type]
         garmin_password=required["GARMIN_PASSWORD"],  # type: ignore[arg-type]
@@ -144,4 +156,6 @@ def load_config() -> Config:
         wake_check_interval_minutes=wake_check_interval_minutes,
         wake_check_start=wake_check_start,
         wake_check_end=wake_check_end,
+        garmin_api_port=garmin_api_port,
+        garmin_api_key=garmin_api_key,
     )
