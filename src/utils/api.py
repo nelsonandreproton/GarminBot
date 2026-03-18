@@ -2,9 +2,11 @@
 
 Endpoints (all require Authorization: Bearer <GARMIN_API_KEY>):
 
-  GET /api/metrics?days=7       — last N days of daily health metrics (max 30)
-  GET /api/activities?days=14   — recent Garmin activities (max 30)
-  GET /api/summary              — compact all-in-one payload for workout suggestions
+  GET  /api/metrics?days=7      — last N days of daily health metrics (max 30)
+  GET  /api/activities?days=14  — recent Garmin activities (max 30)
+  GET  /api/summary             — compact all-in-one payload for workout suggestions
+  POST /api/sync                — trigger a Garmin sync and block until complete;
+                                  returns yesterday's metrics on success
 """
 
 from __future__ import annotations
@@ -57,7 +59,7 @@ def _activity_to_dict(row) -> dict:
     }
 
 
-def _make_handler(api_key: str, repo):
+def _make_handler(api_key: str, repo, sync_fn=None):
     class ApiHandler(BaseHTTPRequestHandler):
         def _check_auth(self) -> bool:
             auth = self.headers.get("Authorization", "")
@@ -99,6 +101,35 @@ def _make_handler(api_key: str, repo):
                 self._handle_summary()
             else:
                 self._send_json({"error": "not found"}, status=404)
+
+        def do_POST(self):  # noqa: N802
+            parsed = urlparse(self.path)
+
+            if not self._check_auth():
+                return
+
+            if parsed.path == "/api/sync":
+                self._handle_sync()
+            else:
+                self._send_json({"error": "not found"}, status=404)
+
+        def _handle_sync(self) -> None:
+            """Trigger a Garmin sync and block until complete, then return yesterday's metrics."""
+            if sync_fn is None:
+                self._send_json({"error": "sync not configured"}, status=503)
+                return
+            try:
+                sync_fn()
+            except Exception as exc:
+                logger.error("POST /api/sync failed: %s", exc, exc_info=True)
+                self._send_json({"error": str(exc)}, status=500)
+                return
+            yesterday = date.today() - timedelta(days=1)
+            row = repo.get_metrics_by_date(yesterday)
+            if row is None:
+                self._send_json({"error": "no data after sync"}, status=404)
+                return
+            self._send_json(_metrics_to_dict(row))
 
         def _handle_metrics(self, params: dict) -> None:
             days = self._parse_days(params, default=7)
@@ -182,18 +213,20 @@ def _make_handler(api_key: str, repo):
     return ApiHandler
 
 
-def start_api_server(port: int, api_key: str, repo) -> threading.Thread:
+def start_api_server(port: int, api_key: str, repo, sync_fn=None) -> threading.Thread:
     """Start the read-only data API in a daemon thread.
 
     Args:
         port:    TCP port to listen on.
         api_key: Secret key callers must supply in Authorization: Bearer header.
         repo:    Repository instance to read data from.
+        sync_fn: Optional callable that triggers a Garmin sync synchronously.
+                 When provided, POST /api/sync becomes available.
 
     Returns:
         The daemon thread (already started).
     """
-    handler = _make_handler(api_key, repo)
+    handler = _make_handler(api_key, repo, sync_fn=sync_fn)
     server = HTTPServer(("127.0.0.1", port), handler)
 
     thread = threading.Thread(target=server.serve_forever, daemon=True)

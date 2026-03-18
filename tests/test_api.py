@@ -82,9 +82,9 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-def _start_test_server(repo, key=API_KEY) -> tuple[int, HTTPServer]:
+def _start_test_server(repo, key=API_KEY, sync_fn=None) -> tuple[int, HTTPServer]:
     port = _free_port()
-    handler = _make_handler(key, repo)
+    handler = _make_handler(key, repo, sync_fn=sync_fn)
     server = HTTPServer(("127.0.0.1", port), handler)
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
@@ -97,6 +97,20 @@ def _get(port: int, path: str, key: str | None = API_KEY) -> tuple[int, dict | l
 
     url = f"http://127.0.0.1:{port}{path}"
     req = urllib.request.Request(url)
+    if key is not None:
+        req.add_header("Authorization", f"Bearer {key}")
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return resp.status, json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read())
+
+
+def _post(port: int, path: str, key: str | None = API_KEY) -> tuple[int, dict | list]:
+    import urllib.request
+
+    url = f"http://127.0.0.1:{port}{path}"
+    req = urllib.request.Request(url, data=b"", method="POST")
     if key is not None:
         req.add_header("Authorization", f"Bearer {key}")
     try:
@@ -378,3 +392,109 @@ def test_start_api_server_returns_thread():
         assert status == 200
     finally:
         pass  # daemon thread; no explicit shutdown needed in tests
+
+
+# ------------------------------------------------------------------ #
+# POST /api/sync                                                       #
+# ------------------------------------------------------------------ #
+
+
+def test_sync_blocks_and_returns_metrics():
+    """sync_fn is called synchronously; response contains yesterday's data."""
+    yesterday = date.today() - timedelta(days=1)
+    row = _make_metrics(yesterday, steps=12000, sleep_hours=8.0)
+
+    repo = _make_repo()
+    repo.get_metrics_by_date.return_value = row
+
+    calls = []
+
+    def fake_sync():
+        calls.append(1)
+
+    port, server = _start_test_server(repo, sync_fn=fake_sync)
+    try:
+        status, body = _post(port, "/api/sync")
+        assert status == 200
+        assert len(calls) == 1, "sync_fn must be called exactly once"
+        assert body["steps"] == 12000
+        assert body["sleep_hours"] == 8.0
+        assert body["date"] == str(yesterday)
+    finally:
+        server.shutdown()
+
+
+def test_sync_without_auth_returns_401():
+    port, server = _start_test_server(_make_repo(), sync_fn=lambda: None)
+    try:
+        status, body = _post(port, "/api/sync", key=None)
+        assert status == 401
+    finally:
+        server.shutdown()
+
+
+def test_sync_not_configured_returns_503():
+    """When no sync_fn is provided, POST /api/sync returns 503."""
+    port, server = _start_test_server(_make_repo())  # no sync_fn
+    try:
+        status, body = _post(port, "/api/sync")
+        assert status == 503
+        assert "not configured" in body["error"]
+    finally:
+        server.shutdown()
+
+
+def test_sync_fn_exception_returns_500():
+    def failing_sync():
+        raise RuntimeError("Garmin unreachable")
+
+    port, server = _start_test_server(_make_repo(), sync_fn=failing_sync)
+    try:
+        status, body = _post(port, "/api/sync")
+        assert status == 500
+        assert "Garmin unreachable" in body["error"]
+    finally:
+        server.shutdown()
+
+
+def test_sync_no_data_after_sync_returns_404():
+    repo = _make_repo()
+    repo.get_metrics_by_date.return_value = None  # sync ran but no row saved
+
+    port, server = _start_test_server(repo, sync_fn=lambda: None)
+    try:
+        status, body = _post(port, "/api/sync")
+        assert status == 404
+    finally:
+        server.shutdown()
+
+
+def test_post_unknown_path_returns_404():
+    port, server = _start_test_server(_make_repo())
+    try:
+        status, body = _post(port, "/api/nonexistent")
+        assert status == 404
+    finally:
+        server.shutdown()
+
+
+def test_sync_fn_is_called_before_response():
+    """Verify the sync completes (side effect visible) before the response is read."""
+    yesterday = date.today() - timedelta(days=1)
+    row = _make_metrics(yesterday)
+
+    state = {"synced": False}
+
+    def fake_sync():
+        state["synced"] = True
+
+    repo = _make_repo()
+    repo.get_metrics_by_date.return_value = row
+
+    port, server = _start_test_server(repo, sync_fn=fake_sync)
+    try:
+        status, _ = _post(port, "/api/sync")
+        assert status == 200
+        assert state["synced"] is True
+    finally:
+        server.shutdown()

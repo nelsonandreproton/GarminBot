@@ -121,7 +121,7 @@ def run() -> None:
             logger.warning("GARMIN_API_PORT set but GARMIN_API_KEY is missing — API disabled")
         else:
             from .utils.api import start_api_server
-            start_api_server(config.garmin_api_port, config.garmin_api_key, repo)
+            start_api_server(config.garmin_api_port, config.garmin_api_key, repo, sync_fn=sync_callback)
 
     # Start health check server if configured
     if config.health_port:
