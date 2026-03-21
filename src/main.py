@@ -164,14 +164,15 @@ def run() -> None:
         except ImportError:
             logger.warning("CNCSearch not available — /canticos disabled (PYTHONPATH set?)")
 
-    # HetznerCheck: register /server_status handler if configured
+    # HetznerCheck: register /server_status and /container_disk handlers if configured
     _hetznercheck_config = os.environ.get("HETZNERCHECK_CONFIG_PATH")
     if _hetznercheck_config:
         try:
-            from monitor.bot_handler import register_server_status_handler
+            from monitor.bot_handler import register_server_status_handler, register_container_disk_handler
             register_server_status_handler(app, config_path=_hetznercheck_config)
+            register_container_disk_handler(app)
         except ImportError:
-            logger.warning("HetznerCheck not available — /server_status disabled (PYTHONPATH set?)")
+            logger.warning("HetznerCheck not available — /server_status and /container_disk disabled (PYTHONPATH set?)")
 
     # Register commands with BotFather
     asyncio.get_event_loop().run_until_complete(tg_bot.register_commands())
