@@ -9,7 +9,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs
-      - /home/garminbot/Obsidian:/obsidian
+      - /home/garminbot/Obsidian/Nelson:/obsidian
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')"]
       interval: 60s
