@@ -81,7 +81,9 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
         self._garmin_sync = garmin_sync_callback
         self._garmin_backfill = garmin_backfill_callback
         self._garmin_client = garmin_client
-        self._garmin_report: Callable | None = None  # Set by main.py after bot creation
+        self._garmin_report: Callable | None = None    # Set by main.py after bot creation
+        self._newsletter_check: Callable | None = None  # Set by main.py if newsletter enabled
+        self._newsletter_bulk: Callable | None = None   # Set by main.py if newsletter enabled
         self._app: Application | None = None
         # NutritionService (lazy init — only if GROQ_API_KEY is set)
         self._nutrition_service = None
@@ -138,7 +140,14 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
             alerts=alerts or None,
             show_sleep=show_sleep,
         )
-        await self._send(text)
+        # Append newsletter insight if one is waiting to be sent
+        newsletter_insight = self._repo.get_unsent_daily_insight()
+        if newsletter_insight:
+            text = text + "\n\n" + newsletter_insight.insight_pt
+            await self._send(text)
+            self._repo.mark_insight_sent(newsletter_insight.id)
+        else:
+            await self._send(text)
         logger.info("Daily summary sent")
 
     async def send_weekly_report(
@@ -224,6 +233,7 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
         app.add_handler(_cmd("semana", self._cmd_semana))
         app.add_handler(_cmd("mes", self._cmd_mes))
         app.add_handler(_cmd("sync", self._cmd_sync))
+        app.add_handler(_cmd("pump", self._cmd_pump))
         app.add_handler(_cmd("status", self._cmd_status))
         app.add_handler(_cmd("ajuda", self._cmd_ajuda))
         app.add_handler(_cmd("help", self._cmd_ajuda))
@@ -309,6 +319,7 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
             BotCommand("equipamento", "Ver ou configurar equipamento de ginásio"),
             BotCommand("treinei", "Registar treino feito (ex: /treinei Bench 4x8)"),
             BotCommand("progresso", "Ver histórico de exercício (ex: /progresso bench press)"),
+            BotCommand("pump", "Scraping e análise histórica do The Pump newsletter"),
             BotCommand("server_status", "Estado atual do servidor Hetzner"),
             BotCommand("container_disk", "Uso de disco por container Docker"),
             BotCommand("canticos", "Cânticos do Caminho (ex: /canticos João 3:16)"),

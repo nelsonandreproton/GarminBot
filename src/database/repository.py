@@ -10,7 +10,7 @@ from typing import Any, Generator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from .models import Base, DailyMetrics, FoodCache, FoodEntry, GarminActivity, MealPreset, MealPresetItem, SyncLog, TrainingEntry, UserGoal, UserSetting, WaistEntry, WaterEntry
+from .models import Base, DailyMetrics, FoodCache, FoodEntry, GarminActivity, MealPreset, MealPresetItem, NewsletterInsight, NewsletterPost, SyncLog, TrainingEntry, UserGoal, UserSetting, WaistEntry, WaterEntry
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +85,12 @@ class Repository:
             if "food_cache" not in table_names:
                 FoodCache.__table__.create(self._engine)
                 logger.info("Migration: created table food_cache")
+            if "newsletter_posts" not in table_names:
+                NewsletterPost.__table__.create(self._engine)
+                logger.info("Migration: created table newsletter_posts")
+            if "newsletter_insights" not in table_names:
+                NewsletterInsight.__table__.create(self._engine)
+                logger.info("Migration: created table newsletter_insights")
 
     @contextmanager
     def _session(self) -> Generator[Session, None, None]:
@@ -862,3 +868,90 @@ class Repository:
             entry["minutes"] += row.duration_min or 0
             entry["km"] += row.distance_km or 0.0
         return totals
+
+    # ------------------------------------------------------------------ #
+    # Newsletter                                                            #
+    # ------------------------------------------------------------------ #
+
+    def get_latest_newsletter_post_date(self) -> date | None:
+        """Return the published_date of the most recently scraped post, or None."""
+        with self._session() as session:
+            row = (
+                session.query(NewsletterPost)
+                .order_by(NewsletterPost.published_date.desc())
+                .first()
+            )
+        return row.published_date if row else None
+
+    def save_newsletter_post(self, url: str, title: str, published_date: date | None, content_text: str) -> NewsletterPost:
+        """Insert a newsletter post; silently skip if URL already exists."""
+        url = url[:490]
+        with self._session() as session:
+            existing = session.query(NewsletterPost).filter_by(url=url).first()
+            if existing:
+                return existing
+            post = NewsletterPost(
+                url=url,
+                title=title,
+                published_date=published_date,
+                content_text=content_text,
+            )
+            session.add(post)
+        return post
+
+    def get_all_newsletter_posts(self) -> list[NewsletterPost]:
+        """Return all stored posts ordered by date ascending."""
+        with self._session() as session:
+            return (
+                session.query(NewsletterPost)
+                .order_by(NewsletterPost.published_date.asc())
+                .all()
+            )
+
+    def save_newsletter_insight(
+        self,
+        insight_pt: str,
+        insight_type: str,
+        post_url: str | None = None,
+        metrics_context: str | None = None,
+    ) -> NewsletterInsight:
+        """Persist a generated newsletter insight."""
+        if insight_type not in ("daily", "historical"):
+            raise ValueError(f"Invalid insight_type: {insight_type!r}. Must be 'daily' or 'historical'.")
+        with self._session() as session:
+            insight = NewsletterInsight(
+                post_url=post_url,
+                insight_type=insight_type,
+                insight_pt=insight_pt,
+                metrics_context=metrics_context,
+                sent=False,
+            )
+            session.add(insight)
+        return insight
+
+    def get_unsent_daily_insight(self) -> NewsletterInsight | None:
+        """Return the most recent unsent daily insight, or None."""
+        with self._session() as session:
+            return (
+                session.query(NewsletterInsight)
+                .filter_by(insight_type="daily", sent=False)
+                .order_by(NewsletterInsight.generated_at.desc())
+                .first()
+            )
+
+    def mark_insight_sent(self, insight_id: int) -> None:
+        """Mark a newsletter insight as sent."""
+        with self._session() as session:
+            insight = session.query(NewsletterInsight).filter_by(id=insight_id).first()
+            if insight:
+                insight.sent = True
+
+    def get_latest_historical_insight(self) -> NewsletterInsight | None:
+        """Return the most recently generated historical insight, or None."""
+        with self._session() as session:
+            return (
+                session.query(NewsletterInsight)
+                .filter_by(insight_type="historical")
+                .order_by(NewsletterInsight.generated_at.desc())
+                .first()
+            )

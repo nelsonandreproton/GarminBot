@@ -12,7 +12,7 @@ from datetime import date, timedelta
 from .config import ConfigError, load_config
 from .database.repository import Repository
 from .garmin.client import GarminClient
-from .scheduler.jobs import make_report_callback, make_sync_job
+from .scheduler.jobs import make_newsletter_job, make_report_callback, make_sync_job, run_newsletter_bulk_scrape
 from .telegram.bot import TelegramBot
 from .utils.logger import setup_logging
 
@@ -67,6 +67,7 @@ def _run_startup_backfill(garmin: GarminClient, repo: Repository) -> None:
             time.sleep(2)  # rate limiting
         except Exception as exc:
             logger.warning("Startup backfill: failed for %s: %s", day, exc)
+
 
 
 def run() -> None:
@@ -173,6 +174,11 @@ def run() -> None:
             register_container_disk_handler(app)
         except ImportError:
             logger.warning("HetznerCheck not available — /server_status and /container_disk disabled (PYTHONPATH set?)")
+
+    # Newsletter callbacks — wired onto bot so /sync and /pump can call them
+    if config.newsletter_enabled and config.groq_api_key:
+        tg_bot._newsletter_check = make_newsletter_job(repo, tg_bot, config.groq_api_key)
+        tg_bot._newsletter_bulk = lambda: run_newsletter_bulk_scrape(repo, tg_bot, config.groq_api_key)
 
     # Register commands with BotFather
     asyncio.get_event_loop().run_until_complete(tg_bot.register_commands())

@@ -19,8 +19,9 @@ logger = logging.getLogger(__name__)
 class SystemMixin:
     """Mixin providing system/admin command handlers."""
 
+    @safe_command
     async def _cmd_sync(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """/sync — sync yesterday's Garmin data and send the daily summary."""
+        """/sync — sync yesterday's Garmin data, check for new newsletter post, send daily summary."""
         if not self._auth_check(update) or _is_rate_limited(update.effective_chat.id):
             return
         if self._garmin_sync is None:
@@ -34,8 +35,49 @@ class SystemMixin:
             logger.error("Manual sync failed: %s", exc)
             await update.message.reply_text(format_error_message("sync manual", exc), parse_mode=ParseMode.MARKDOWN)
             return
+        # Check for new newsletter post (runs synchronously before report is sent)
+        if self._newsletter_check is not None:
+            try:
+                self._newsletter_check()
+            except Exception as exc:
+                logger.warning("Newsletter check failed during /sync: %s", exc)
         # Send yesterday's report directly (already in async context — no _run_async needed)
         await self._send_yesterday_report()
+
+    @safe_command
+    async def _cmd_pump(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """/pump — scrape all historical Pump newsletter posts and send a personalised insights document."""
+        if not self._auth_check(update) or _is_rate_limited(update.effective_chat.id):
+            return
+        if self._newsletter_bulk is None:
+            await update.message.reply_text("Newsletter não configurado (GROQ_API_KEY em falta?).")
+            return
+        await update.message.reply_text(
+            "⏳ A fazer scraping de todos os artigos do The Pump e a analisar com IA...\n"
+            "Isto pode demorar alguns minutos."
+        )
+        import asyncio as _asyncio
+        loop = _asyncio.get_event_loop()
+        try:
+            await loop.run_in_executor(None, self._newsletter_bulk)
+            # Fetch the historical insight that was just generated and stored in DB
+            insight = self._repo.get_latest_historical_insight()
+            if insight:
+                import io as _io
+                from telegram import Bot, InputFile
+                tg = Bot(token=self._config.telegram_bot_token)
+                doc_bytes = insight.insight_pt.encode("utf-8")
+                await tg.send_document(
+                    chat_id=self._chat_id,
+                    document=InputFile(_io.BytesIO(doc_bytes), filename="the_pump_insights_historicos.md"),
+                    caption=f"📚 *The Pump — Insights Históricos*\nConsulta este documento como referência personalizada.",
+                    parse_mode="Markdown",
+                )
+            else:
+                await update.message.reply_text("⚠️ Scraping concluído mas não foi possível gerar o documento.")
+        except Exception as exc:
+            logger.error("/pump bulk scrape failed: %s", exc, exc_info=True)
+            await update.message.reply_text("❌ Falhou o scraping do The Pump. Verifica os logs.")
 
     @safe_command
     async def _cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

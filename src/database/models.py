@@ -201,3 +201,34 @@ class FoodCache(Base):
 
     def __repr__(self) -> str:
         return f"<FoodCache query={self.query_text!r} use_count={self.use_count}>"
+
+
+class NewsletterPost(Base):
+    """A scraped post from The Pump (Arnold's newsletter)."""
+    __tablename__ = "newsletter_posts"
+
+    url = Column(String(500), primary_key=True)
+    title = Column(String(300), nullable=False)
+    published_date = Column(Date, nullable=True)
+    content_text = Column(Text, nullable=False)
+    scraped_at = Column(DateTime, default=lambda: datetime.now(UTC))
+
+    def __repr__(self) -> str:
+        return f"<NewsletterPost title={self.title!r} date={self.published_date}>"
+
+
+class NewsletterInsight(Base):
+    """LLM-generated insight from a newsletter post, stored for delivery via /sync."""
+    __tablename__ = "newsletter_insights"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    # post_url is None for the one-time historical summary
+    post_url = Column(String(500), ForeignKey("newsletter_posts.url"), nullable=True)
+    insight_type = Column(String(20), nullable=False)  # "daily" | "historical"
+    insight_pt = Column(Text, nullable=False)           # final Portuguese text
+    metrics_context = Column(Text, nullable=True)       # JSON snapshot of metrics used
+    generated_at = Column(DateTime, default=lambda: datetime.now(UTC))
+    sent = Column(Boolean, default=False)
+
+    def __repr__(self) -> str:
+        return f"<NewsletterInsight type={self.insight_type!r} sent={self.sent}>"

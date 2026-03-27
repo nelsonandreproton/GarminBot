@@ -41,6 +41,7 @@ class Config:
     wake_check_end: str
     garmin_api_port: int | None
     garmin_api_key: str | None
+    newsletter_enabled: bool
 
     # Derived fields
     sync_hour: int = field(init=False)
@@ -158,4 +159,5 @@ def load_config() -> Config:
         wake_check_end=wake_check_end,
         garmin_api_port=garmin_api_port,
         garmin_api_key=garmin_api_key,
+        newsletter_enabled=os.getenv("NEWSLETTER_ENABLED", "true").strip().lower() != "false",
     )
