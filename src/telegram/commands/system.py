@@ -60,24 +60,25 @@ class SystemMixin:
         loop = _asyncio.get_event_loop()
         try:
             await loop.run_in_executor(None, self._newsletter_bulk)
-            # Fetch the historical insight that was just generated and stored in DB
-            insight = self._repo.get_latest_historical_insight()
-            if insight:
-                import io as _io
-                from telegram import Bot, InputFile
-                tg = Bot(token=self._config.telegram_bot_token)
-                doc_bytes = insight.insight_pt.encode("utf-8")
-                await tg.send_document(
-                    chat_id=self._chat_id,
-                    document=InputFile(_io.BytesIO(doc_bytes), filename="the_pump_insights_historicos.md"),
-                    caption=f"📚 *The Pump — Insights Históricos*\nConsulta este documento como referência personalizada.",
-                    parse_mode="Markdown",
-                )
-            else:
-                await update.message.reply_text("⚠️ Scraping concluído mas não foi possível gerar o documento.")
         except Exception as exc:
             logger.error("/pump bulk scrape failed: %s", exc, exc_info=True)
-            await update.message.reply_text("❌ Falhou o scraping do The Pump. Verifica os logs.")
+            await update.message.reply_text(f"❌ Falhou o scraping do The Pump: {exc}")
+            return
+        # Fetch the historical insight that was just generated and stored in DB
+        insight = self._repo.get_latest_historical_insight()
+        if insight:
+            import io as _io
+            from telegram import Bot, InputFile
+            tg = Bot(token=self._config.telegram_bot_token)
+            doc_bytes = insight.insight_pt.encode("utf-8")
+            await tg.send_document(
+                chat_id=self._chat_id,
+                document=InputFile(_io.BytesIO(doc_bytes), filename="the_pump_insights_historicos.md"),
+                caption="📚 *The Pump — Insights Históricos*\nConsulta este documento como referência personalizada.",
+                parse_mode="Markdown",
+            )
+        else:
+            await update.message.reply_text("⚠️ Análise concluída mas sem resultado guardado. Verifica os logs.")
 
     @safe_command
     async def _cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -175,72 +175,78 @@ def make_newsletter_job(repo: Repository, bot: TelegramBot, groq_api_key: str) -
 
 
 def run_newsletter_bulk_scrape(repo: Repository, bot: TelegramBot, groq_api_key: str) -> None:
-    """Scrape all historical posts and send a one-time reference document via Telegram.
+    """Scrape all historical posts and generate a reference document.
 
-    Safe to call multiple times — exits early if posts already exist in the DB.
-    Intended to be called once on startup.
+    Safe to call multiple times:
+    - If posts already exist AND a historical insight exists → skip entirely.
+    - If posts already exist but NO historical insight → re-use stored posts for analysis.
+    - If no posts → scrape then analyse.
 
     Args:
         repo: Database repository.
         bot: TelegramBot instance for sending the document.
         groq_api_key: Groq API key for LLM analysis.
     """
-    if repo.get_all_newsletter_posts():
-        logger.info("Newsletter bulk scrape: posts already present, skipping")
-        return
-
     from ..newsletter.scraper import scrape_post_list, scrape_post_content
     from ..newsletter.analyser import analyse_historical_posts
 
-    logger.info("Newsletter bulk scrape: starting initial scrape of all posts")
-    try:
-        all_posts = scrape_post_list()
-    except Exception as exc:
-        logger.error("Newsletter bulk scrape: failed to fetch post list: %s", exc)
+    existing_posts = repo.get_all_newsletter_posts()
+
+    if existing_posts and repo.get_latest_historical_insight():
+        logger.info("Newsletter bulk scrape: posts and insight already present, skipping")
         return
 
-    if not all_posts:
-        logger.warning("Newsletter bulk scrape: no posts found on site")
-        return
-
-    posts_data: list[dict] = []
-    for i, post_meta in enumerate(all_posts, 1):
+    if existing_posts:
+        # Posts were scraped before but analysis failed — re-use stored content
         logger.info(
-            "Newsletter bulk scrape: scraping post %d/%d — %r",
-            i, len(all_posts), post_meta.title,
+            "Newsletter bulk scrape: %d posts in DB but no historical insight — re-running analysis",
+            len(existing_posts),
         )
+        posts_data = [{"title": p.title, "content": p.content_text} for p in existing_posts]
+    else:
+        logger.info("Newsletter bulk scrape: starting initial scrape of all posts")
         try:
-            content = scrape_post_content(post_meta.url)
-            repo.save_newsletter_post(
-                url=post_meta.url,
-                title=post_meta.title,
-                published_date=post_meta.published_date,
-                content_text=content,
-            )
-            posts_data.append({"title": post_meta.title, "content": content})
+            all_posts = scrape_post_list()
         except Exception as exc:
-            logger.warning("Newsletter bulk scrape: failed for %s: %s", post_meta.url, exc)
-        time.sleep(2.5)
+            logger.error("Newsletter bulk scrape: failed to fetch post list: %s", exc)
+            raise
 
-    if not posts_data:
-        logger.error("Newsletter bulk scrape: no posts successfully scraped")
-        return
+        if not all_posts:
+            logger.warning("Newsletter bulk scrape: no posts found on site")
+            raise RuntimeError("Nenhum artigo encontrado em arnoldspumpclub.com")
+
+        posts_data = []
+        for i, post_meta in enumerate(all_posts, 1):
+            logger.info(
+                "Newsletter bulk scrape: scraping post %d/%d — %r",
+                i, len(all_posts), post_meta.title,
+            )
+            try:
+                content = scrape_post_content(post_meta.url)
+                repo.save_newsletter_post(
+                    url=post_meta.url,
+                    title=post_meta.title,
+                    published_date=post_meta.published_date,
+                    content_text=content,
+                )
+                posts_data.append({"title": post_meta.title, "content": content})
+            except Exception as exc:
+                logger.warning("Newsletter bulk scrape: failed for %s: %s", post_meta.url, exc)
+            time.sleep(2.5)
+
+        if not posts_data:
+            logger.error("Newsletter bulk scrape: no posts successfully scraped")
+            raise RuntimeError("Não foi possível fazer scraping de nenhum artigo")
 
     logger.info("Newsletter bulk scrape: analysing %d posts with LLM", len(posts_data))
-    try:
-        historical_doc = analyse_historical_posts(
-            groq_api_key=groq_api_key,
-            posts=posts_data,
-        )
-    except Exception as exc:
-        logger.error("Newsletter bulk scrape: historical analysis failed: %s", exc)
-        return
+    historical_doc = analyse_historical_posts(
+        groq_api_key=groq_api_key,
+        posts=posts_data,
+    )
 
-    # Store the historical insight
     repo.save_newsletter_insight(
         insight_pt=historical_doc,
         insight_type="historical",
         post_url=None,
     )
-
     logger.info("Newsletter bulk scrape: complete (%d posts processed)", len(posts_data))
