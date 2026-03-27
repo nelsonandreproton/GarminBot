@@ -881,7 +881,7 @@ class Repository:
                 .order_by(NewsletterPost.published_date.desc())
                 .first()
             )
-        return row.published_date if row else None
+            return row.published_date if row else None
 
     def save_newsletter_post(self, url: str, title: str, published_date: date | None, content_text: str) -> NewsletterPost:
         """Insert a newsletter post; silently skip if URL already exists."""
@@ -902,11 +902,14 @@ class Repository:
     def get_all_newsletter_posts(self) -> list[NewsletterPost]:
         """Return all stored posts ordered by date ascending."""
         with self._session() as session:
-            return (
+            rows = (
                 session.query(NewsletterPost)
                 .order_by(NewsletterPost.published_date.asc())
                 .all()
             )
+            for row in rows:
+                session.expunge(row)
+            return rows
 
     def save_newsletter_insight(
         self,
@@ -932,12 +935,15 @@ class Repository:
     def get_unsent_daily_insight(self) -> NewsletterInsight | None:
         """Return the most recent unsent daily insight, or None."""
         with self._session() as session:
-            return (
+            row = (
                 session.query(NewsletterInsight)
                 .filter_by(insight_type="daily", sent=False)
                 .order_by(NewsletterInsight.generated_at.desc())
                 .first()
             )
+            if row:
+                session.expunge(row)
+            return row
 
     def mark_insight_sent(self, insight_id: int) -> None:
         """Mark a newsletter insight as sent."""
@@ -949,9 +955,12 @@ class Repository:
     def get_latest_historical_insight(self) -> NewsletterInsight | None:
         """Return the most recently generated historical insight, or None."""
         with self._session() as session:
-            return (
+            row = (
                 session.query(NewsletterInsight)
                 .filter_by(insight_type="historical")
                 .order_by(NewsletterInsight.generated_at.desc())
                 .first()
             )
+            if row:
+                session.expunge(row)
+            return row
