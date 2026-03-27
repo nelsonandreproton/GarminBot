@@ -12,7 +12,7 @@ from datetime import date, timedelta
 from .config import ConfigError, load_config
 from .database.repository import Repository
 from .garmin.client import GarminClient
-from .scheduler.jobs import make_newsletter_job, make_report_callback, make_sync_job, run_newsletter_bulk_scrape
+from .scheduler.jobs import make_newsletter_job, make_report_callback, make_sync_job
 from .telegram.bot import TelegramBot
 from .utils.logger import setup_logging
 
@@ -175,10 +175,9 @@ def run() -> None:
         except ImportError:
             logger.warning("HetznerCheck not available — /server_status and /container_disk disabled (PYTHONPATH set?)")
 
-    # Newsletter callbacks — wired onto bot so /sync and /pump can call them
+    # Wire newsletter check onto bot so /pump can call it on demand
     if config.newsletter_enabled and config.groq_api_key:
         tg_bot._newsletter_check = make_newsletter_job(repo, tg_bot, config.groq_api_key)
-        tg_bot._newsletter_bulk = lambda: run_newsletter_bulk_scrape(repo, tg_bot, config.groq_api_key)
 
     # Register commands with BotFather
     asyncio.get_event_loop().run_until_complete(tg_bot.register_commands())

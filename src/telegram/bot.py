@@ -140,14 +140,7 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
             alerts=alerts or None,
             show_sleep=show_sleep,
         )
-        # Append newsletter insight if one is waiting to be sent
-        newsletter_insight = self._repo.get_unsent_daily_insight()
-        if newsletter_insight:
-            text = text + "\n\n" + newsletter_insight.insight_pt
-            await self._send(text)
-            self._repo.mark_insight_sent(newsletter_insight.id)
-        else:
-            await self._send(text)
+        await self._send(text)
         logger.info("Daily summary sent")
 
     async def send_weekly_report(
@@ -319,7 +312,7 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
             BotCommand("equipamento", "Ver ou configurar equipamento de ginásio"),
             BotCommand("treinei", "Registar treino feito (ex: /treinei Bench 4x8)"),
             BotCommand("progresso", "Ver histórico de exercício (ex: /progresso bench press)"),
-            BotCommand("pump", "Scraping e análise histórica do The Pump newsletter"),
+            BotCommand("pump", "Ver insights do artigo de hoje do The Pump"),
             BotCommand("server_status", "Estado atual do servidor Hetzner"),
             BotCommand("container_disk", "Uso de disco por container Docker"),
             BotCommand("canticos", "Cânticos do Caminho (ex: /canticos João 3:16)"),
