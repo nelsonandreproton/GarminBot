@@ -280,8 +280,8 @@ def format_error_message(context: str, error: Exception) -> str:
 
     if isinstance(error, garminconnect.GarminConnectAuthenticationError):
         detail = "Token expirado ou credenciais inválidas. Usa /sync para re-autenticar. Se persistir, verifica as credenciais no .env."
-    elif isinstance(error, garminconnect.GarminConnectTooManyRequestsError):
-        detail = "A API Garmin bloqueou temporariamente (demasiados pedidos). Tenta novamente em 15 minutos."
+    elif isinstance(error, garminconnect.GarminConnectTooManyRequestsError) or "429" in msg:
+        detail = "⏳ Garmin bloqueou temporariamente (demasiados pedidos). Aguarda 30–60 minutos antes de tentar novamente."
     elif isinstance(error, (ConnectionError, TimeoutError)) or "timeout" in msg.lower() or "connection" in msg.lower():
         detail = "Falha de rede. O bot vai tentar novamente automaticamente."
     elif "database" in type_name.lower() or "sqlalchemy" in type_name.lower():

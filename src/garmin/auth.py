@@ -10,7 +10,7 @@ from pathlib import Path
 import garminconnect
 from tenacity import (
     retry,
-    retry_if_exception_type,
+    retry_if_exception,
     stop_after_attempt,
     wait_exponential,
 )
@@ -18,6 +18,10 @@ from tenacity import (
 logger = logging.getLogger(__name__)
 
 TOKEN_FILE = Path("./data/garmin_tokens.json")
+
+
+def _is_rate_limit(exc: BaseException) -> bool:
+    return "429" in str(exc)
 
 
 def _on_retry(retry_state) -> None:
@@ -29,7 +33,7 @@ def _on_retry(retry_state) -> None:
 
 
 @retry(
-    retry=retry_if_exception_type(Exception),
+    retry=retry_if_exception(lambda exc: not _is_rate_limit(exc)),
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=2, min=4, max=30),
     before_sleep=_on_retry,
