@@ -945,6 +945,19 @@ class Repository:
                 session.expunge(row)
             return row
 
+    def get_latest_daily_insight(self) -> NewsletterInsight | None:
+        """Return the most recently generated daily insight (sent or not), or None."""
+        with self._session() as session:
+            row = (
+                session.query(NewsletterInsight)
+                .filter_by(insight_type="daily")
+                .order_by(NewsletterInsight.generated_at.desc())
+                .first()
+            )
+            if row:
+                session.expunge(row)
+            return row
+
     def mark_insight_sent(self, insight_id: int) -> None:
         """Mark a newsletter insight as sent."""
         with self._session() as session:

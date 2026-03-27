@@ -64,20 +64,20 @@ class TestExtractPostsFromPage:
     def test_extracts_post_with_date(self):
         html = """
         <article>
-          <a href="/p/hello-world"><h2>Hello World</h2></a>
+          <a href="/blogs/newsletter/hello-world"><h2>Hello World</h2></a>
           <time datetime="2024-05-01">May 1, 2024</time>
         </article>
         """
         posts = _extract_posts_from_page(self._soup(html))
         assert len(posts) == 1
-        assert posts[0].url == "https://arnoldspumpclub.com/p/hello-world"
+        assert posts[0].url == "https://arnoldspumpclub.com/blogs/newsletter/hello-world"
         assert posts[0].title == "Hello World"
         assert posts[0].published_date == date(2024, 5, 1)
 
-    def test_skips_links_without_slash_p(self):
+    def test_skips_links_without_newsletter_path(self):
         html = """
         <a href="/about">About</a>
-        <a href="/p/real-post">Real Post</a>
+        <a href="/blogs/newsletter/real-post">Real Post</a>
         """
         posts = _extract_posts_from_page(self._soup(html))
         assert len(posts) == 1
@@ -85,16 +85,16 @@ class TestExtractPostsFromPage:
 
     def test_deduplicates_same_url(self):
         html = """
-        <a href="/p/dupe">Post A</a>
-        <a href="/p/dupe">Post A again</a>
+        <a href="/blogs/newsletter/dupe">Post A</a>
+        <a href="/blogs/newsletter/dupe">Post A again</a>
         """
         posts = _extract_posts_from_page(self._soup(html))
         assert len(posts) == 1
 
     def test_absolute_url_preserved(self):
-        html = '<a href="https://arnoldspumpclub.com/p/abs">Full URL Post</a>'
+        html = '<a href="https://arnoldspumpclub.com/blogs/newsletter/abs">Full URL Post</a>'
         posts = _extract_posts_from_page(self._soup(html))
-        assert posts[0].url == "https://arnoldspumpclub.com/p/abs"
+        assert posts[0].url == "https://arnoldspumpclub.com/blogs/newsletter/abs"
 
     def test_no_links_returns_empty(self):
         posts = _extract_posts_from_page(self._soup("<p>Nothing here</p>"))
@@ -108,7 +108,7 @@ class TestExtractPostsFromPage:
 
 class TestScrapePostList:
     def _make_listing_html(self, posts: list[tuple]) -> str:
-        """Build a minimal Beehiiv-style listing page."""
+        """Build a minimal Shopify-style listing page."""
         items = ""
         for url, title, dt in posts:
             items += f"""
@@ -123,8 +123,8 @@ class TestScrapePostList:
     def test_returns_posts_sorted_oldest_first(self, mock_get):
         from bs4 import BeautifulSoup
         html = self._make_listing_html([
-            ("/p/b", "Post B", "2024-06-01"),
-            ("/p/a", "Post A", "2024-01-01"),
+            ("/blogs/newsletter/b", "Post B", "2024-06-01"),
+            ("/blogs/newsletter/a", "Post A", "2024-01-01"),
         ])
         mock_get.return_value = BeautifulSoup(html, "html.parser")
         posts = scrape_post_list()
@@ -351,82 +351,38 @@ class TestNewsletterRepository:
 class TestMakeNewsletterJob:
     """Tests for the make_newsletter_job orchestration logic."""
 
-    def _make_repo(self, latest_date=None, known_urls=None):
-        """Build a mock repo with configurable latest date and known post URLs."""
+    def _make_repo(self, known_urls=None):
+        """Build a mock repo with configurable known post URLs."""
         repo = MagicMock()
-        repo.get_latest_newsletter_post_date.return_value = latest_date
         known_posts = []
         for url in (known_urls or []):
             post = MagicMock()
             post.url = url
             known_posts.append(post)
         repo.get_all_newsletter_posts.return_value = known_posts
+        repo.get_unsent_daily_insight.return_value = None
         repo.get_metrics_by_date.return_value = MagicMock()
         return repo
 
-    def _make_post_meta(self, url="https://arnoldspumpclub.com/p/new-post", title="New Post", published_date=None):
+    def _make_post_meta(self, url="https://arnoldspumpclub.com/blogs/newsletter/new-post", title="New Post", published_date=None):
         from src.newsletter.scraper import PostMeta
-        return PostMeta(
-            url=url,
-            title=title,
-            published_date=published_date or date(2024, 6, 1),
-        )
+        return PostMeta(url=url, title=title, published_date=published_date or date(2024, 6, 1))
 
-    @patch("src.newsletter.scraper.scrape_post_list")
+    @patch("src.newsletter.scraper.scrape_latest_post")
     @patch("src.newsletter.scraper.scrape_post_content")
     @patch("src.newsletter.analyser.analyse_daily_post")
-    def test_skips_when_latest_post_is_recent(self, mock_analyse, mock_scrape_content, mock_scrape_list):
-        """Job returns early without analysing if latest post date is yesterday or newer."""
-        from datetime import timedelta
-        yesterday = date.today() - timedelta(days=1)
-        repo = self._make_repo(latest_date=yesterday)
-        bot = MagicMock()
-
-        from src.scheduler.jobs import make_newsletter_job
-        job = make_newsletter_job(repo, bot, groq_api_key="test-key")
-        job()
-
-        mock_scrape_list.assert_not_called()
-        mock_scrape_content.assert_not_called()
-        mock_analyse.assert_not_called()
-        repo.save_newsletter_insight.assert_not_called()
-
-    @patch("src.newsletter.scraper.scrape_post_list")
-    @patch("src.newsletter.scraper.scrape_post_content")
-    @patch("src.newsletter.analyser.analyse_daily_post")
-    def test_skips_when_no_new_posts(self, mock_analyse, mock_scrape_content, mock_scrape_list):
-        """Job returns early without saving an insight when all scraped posts are already stored."""
-        existing_url = "https://arnoldspumpclub.com/p/existing-post"
-        repo = self._make_repo(latest_date=None, known_urls=[existing_url])
-        bot = MagicMock()
-
-        mock_scrape_list.return_value = [self._make_post_meta(url=existing_url)]
-
-        from src.scheduler.jobs import make_newsletter_job
-        job = make_newsletter_job(repo, bot, groq_api_key="test-key")
-        job()
-
-        mock_scrape_list.assert_called_once()
-        mock_scrape_content.assert_not_called()
-        mock_analyse.assert_not_called()
-        repo.save_newsletter_insight.assert_not_called()
-
-    @patch("src.newsletter.scraper.scrape_post_list")
-    @patch("src.newsletter.scraper.scrape_post_content")
-    @patch("src.newsletter.analyser.analyse_daily_post")
-    def test_saves_insight_for_new_post(self, mock_analyse, mock_scrape_content, mock_scrape_list):
-        """Job saves both the post and the insight when a new post is found."""
-        new_url = "https://arnoldspumpclub.com/p/new-post"
+    def test_saves_insight_for_latest_post(self, mock_analyse, mock_scrape_content, mock_scrape_latest):
+        """Job saves both the post and the insight for the latest post."""
+        new_url = "https://arnoldspumpclub.com/blogs/newsletter/new-post"
         post_meta = self._make_post_meta(url=new_url, title="New Post", published_date=date(2024, 6, 1))
-        repo = self._make_repo(latest_date=None, known_urls=[])
-        bot = MagicMock()
+        repo = self._make_repo(known_urls=[])
 
-        mock_scrape_list.return_value = [post_meta]
+        mock_scrape_latest.return_value = post_meta
         mock_scrape_content.return_value = "content"
         mock_analyse.return_value = "insight text"
 
         from src.scheduler.jobs import make_newsletter_job
-        job = make_newsletter_job(repo, bot, groq_api_key="test-key")
+        job = make_newsletter_job(repo, MagicMock(), groq_api_key="test-key")
         job()
 
         repo.save_newsletter_post.assert_called_once_with(
@@ -441,41 +397,56 @@ class TestMakeNewsletterJob:
         assert call_kwargs["insight_type"] == "daily"
         assert call_kwargs["post_url"] == new_url
 
-    @patch("src.newsletter.scraper.scrape_post_list")
+    @patch("src.newsletter.scraper.scrape_latest_post")
     @patch("src.newsletter.scraper.scrape_post_content")
     @patch("src.newsletter.analyser.analyse_daily_post")
-    def test_handles_scrape_content_failure_gracefully(self, mock_analyse, mock_scrape_content, mock_scrape_list):
-        """Job returns without crashing or saving an insight when content scraping fails."""
-        post_meta = self._make_post_meta()
-        repo = self._make_repo(latest_date=None, known_urls=[])
-        bot = MagicMock()
-
-        mock_scrape_list.return_value = [post_meta]
-        mock_scrape_content.side_effect = Exception("network error")
+    def test_raises_when_no_post_found(self, mock_analyse, mock_scrape_content, mock_scrape_latest):
+        """Job raises RuntimeError when listing page returns no posts."""
+        mock_scrape_latest.return_value = None
+        repo = self._make_repo()
 
         from src.scheduler.jobs import make_newsletter_job
-        job = make_newsletter_job(repo, bot, groq_api_key="test-key")
-        job()  # must not raise
+        job = make_newsletter_job(repo, MagicMock(), groq_api_key="test-key")
+
+        with pytest.raises(RuntimeError, match="Nenhum artigo"):
+            job()
+
+        mock_scrape_content.assert_not_called()
+        mock_analyse.assert_not_called()
+
+    @patch("src.newsletter.scraper.scrape_latest_post")
+    @patch("src.newsletter.scraper.scrape_post_content")
+    @patch("src.newsletter.analyser.analyse_daily_post")
+    def test_raises_on_content_scrape_failure(self, mock_analyse, mock_scrape_content, mock_scrape_latest):
+        """Job raises when content scraping fails so caller can show the error."""
+        mock_scrape_latest.return_value = self._make_post_meta()
+        mock_scrape_content.side_effect = Exception("network error")
+        repo = self._make_repo()
+
+        from src.scheduler.jobs import make_newsletter_job
+        job = make_newsletter_job(repo, MagicMock(), groq_api_key="test-key")
+
+        with pytest.raises(Exception, match="network error"):
+            job()
 
         mock_analyse.assert_not_called()
         repo.save_newsletter_insight.assert_not_called()
 
-    @patch("src.newsletter.scraper.scrape_post_list")
+    @patch("src.newsletter.scraper.scrape_latest_post")
     @patch("src.newsletter.scraper.scrape_post_content")
     @patch("src.newsletter.analyser.analyse_daily_post")
-    def test_handles_llm_failure_gracefully(self, mock_analyse, mock_scrape_content, mock_scrape_list):
-        """Job returns without crashing or saving an insight when LLM analysis fails."""
-        post_meta = self._make_post_meta()
-        repo = self._make_repo(latest_date=None, known_urls=[])
-        bot = MagicMock()
-
-        mock_scrape_list.return_value = [post_meta]
+    def test_raises_on_llm_failure(self, mock_analyse, mock_scrape_content, mock_scrape_latest):
+        """Job raises when LLM analysis fails so caller can show the error."""
+        mock_scrape_latest.return_value = self._make_post_meta()
         mock_scrape_content.return_value = "content"
         mock_analyse.side_effect = RuntimeError("LLM unavailable")
+        repo = self._make_repo()
 
         from src.scheduler.jobs import make_newsletter_job
-        job = make_newsletter_job(repo, bot, groq_api_key="test-key")
-        job()  # must not raise
+        job = make_newsletter_job(repo, MagicMock(), groq_api_key="test-key")
+
+        with pytest.raises(RuntimeError, match="LLM unavailable"):
+            job()
 
         repo.save_newsletter_post.assert_called_once()
         repo.save_newsletter_insight.assert_not_called()

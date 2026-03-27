@@ -106,39 +106,28 @@ def make_newsletter_job(repo: Repository, bot: TelegramBot, groq_api_key: str) -
         Callable suitable for use as a scheduler job.
     """
     def newsletter_job() -> None:
-        from ..newsletter.scraper import scrape_post_list, scrape_post_content
+        from ..newsletter.scraper import scrape_latest_post, scrape_post_content
         from ..newsletter.analyser import analyse_daily_post
 
-        latest_date = repo.get_latest_newsletter_post_date()
-        if latest_date and latest_date >= (date.today() - timedelta(days=1)):
-            logger.info("Newsletter job: latest post already up to date (%s), skipping scrape", latest_date)
-            return
+        logger.info("Newsletter job: fetching latest post from listing page")
+        post_meta = scrape_latest_post()
+        if not post_meta:
+            logger.error("Newsletter job: no posts found on listing page")
+            raise RuntimeError("Nenhum artigo encontrado em arnoldspumpclub.com/blogs/newsletter")
 
-        logger.info("Newsletter job: checking for new posts")
-        try:
-            all_posts = scrape_post_list()
-        except Exception as exc:
-            logger.error("Newsletter job: failed to scrape post list: %s", exc)
-            return
+        logger.info("Newsletter job: latest post is %r (%s)", post_meta.title, post_meta.url)
 
-        # Load known URLs from DB to skip already-stored posts
-        stored = repo.get_all_newsletter_posts()
-        known_urls = {p.url for p in stored}
-        new_posts = [p for p in reversed(all_posts) if p.url not in known_urls]
-
-        if not new_posts:
-            logger.info("Newsletter job: no new posts found")
-            return
-
-        # Process only the most recent new post (avoid flooding on first daily run)
-        post_meta = new_posts[0]
-        logger.info("Newsletter job: new post found — %r", post_meta.title)
+        # Skip if already stored and analysed today
+        known_urls = {p.url for p in repo.get_all_newsletter_posts()}
+        if post_meta.url in known_urls and repo.get_unsent_daily_insight() is None:
+            # Already stored but insight was already sent — re-analyse for fresh delivery
+            logger.info("Newsletter job: post already stored, re-analysing for /pump")
 
         try:
             content = scrape_post_content(post_meta.url)
         except Exception as exc:
-            logger.error("Newsletter job: failed to scrape content for %s: %s", post_meta.url, exc)
-            return
+            logger.error("Newsletter job: failed to scrape content: %s", exc)
+            raise
 
         repo.save_newsletter_post(
             url=post_meta.url,
@@ -152,16 +141,12 @@ def make_newsletter_job(repo: Repository, bot: TelegramBot, groq_api_key: str) -
         row = repo.get_metrics_by_date(yesterday)
         metrics = _row_to_metrics(row) if row else {}
 
-        try:
-            insight_text = analyse_daily_post(
-                groq_api_key=groq_api_key,
-                post_title=post_meta.title,
-                post_content=content,
-                yesterday_metrics=metrics,
-            )
-        except Exception as exc:
-            logger.error("Newsletter job: LLM analysis failed: %s", exc)
-            return
+        insight_text = analyse_daily_post(
+            groq_api_key=groq_api_key,
+            post_title=post_meta.title,
+            post_content=content,
+            yesterday_metrics=metrics,
+        )
 
         repo.save_newsletter_insight(
             insight_pt=insight_text,

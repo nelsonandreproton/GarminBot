@@ -54,12 +54,12 @@ class SystemMixin:
             logger.error("/pump failed: %s", exc, exc_info=True)
             await update.message.reply_text(f"❌ Erro ao verificar The Pump: {exc}")
             return
-        insight = self._repo.get_unsent_daily_insight()
+        insight = self._repo.get_latest_daily_insight()
         if insight:
             self._repo.mark_insight_sent(insight.id)
             await self._send(insight.insight_pt)
         else:
-            await update.message.reply_text("📰 Sem novo artigo do The Pump hoje.")
+            await update.message.reply_text("📰 Não foi possível obter o artigo do The Pump.")
 
     @safe_command
     async def _cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

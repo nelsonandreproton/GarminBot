@@ -17,6 +17,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 logger = logging.getLogger(__name__)
 
 BASE_URL = "https://arnoldspumpclub.com"
+LISTING_URL = "https://arnoldspumpclub.com/blogs/newsletter"
 _HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; GarminBot/1.0; +https://github.com/garminbot)",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -37,6 +38,13 @@ def _is_allowed_url(url: str) -> bool:
     """Return True only if url has scheme http/https and netloc arnoldspumpclub.com."""
     parsed = urlparse(url)
     return parsed.scheme in ("http", "https") and parsed.netloc == "arnoldspumpclub.com"
+
+
+def _is_post_url(href: str) -> bool:
+    """Return True if href looks like a newsletter post (not a tag/collection page)."""
+    # Must contain /blogs/newsletter/ and have a slug after it
+    parts = href.rstrip("/").split("/blogs/newsletter/")
+    return len(parts) == 2 and bool(parts[1]) and "?" not in parts[1]
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=15), reraise=True)
@@ -75,35 +83,33 @@ def _parse_date(text: str) -> date | None:
 
 
 def _extract_posts_from_page(soup: BeautifulSoup) -> list[PostMeta]:
-    """Extract post metadata from a listing page (handles Beehiiv markup patterns)."""
+    """Extract post metadata from the /blogs/newsletter listing page (Shopify)."""
     posts: list[PostMeta] = []
     seen: set[str] = set()
 
-    # Beehiiv listing pages use <a> tags whose href contains /p/
-    links = soup.find_all("a", href=lambda h: h and "/p/" in h)
+    # Shopify blog cards: <a href="/blogs/newsletter/<slug>">
+    links = soup.find_all("a", href=lambda h: h and "/blogs/newsletter/" in h)
 
     for link in links:
         href: str = link.get("href", "")
         full_url = href if href.startswith("http") else f"{BASE_URL}{href}"
         full_url = full_url[:490]
 
-        # Skip URLs from disallowed domains (SSRF guard)
-        if not _is_allowed_url(full_url):
+        if not _is_allowed_url(full_url) or not _is_post_url(full_url):
             continue
 
-        # Deduplicate by URL
         if full_url in seen:
             continue
         seen.add(full_url)
 
-        # Title: prefer explicit heading inside the card, fall back to link text
+        # Title: prefer heading inside the card, fall back to link text
         card = link.find_parent(["article", "li", "div"])
         title_el = card.find(["h1", "h2", "h3"]) if card else None
         title = (title_el or link).get_text(separator=" ", strip=True)
         if not title:
             continue
 
-        # Date: <time> tag first, then any element with "date" in class
+        # Date: <time> tag first, then any element with "date" in class/id
         date_el = None
         if card:
             date_el = card.find("time") or card.find(
@@ -133,7 +139,7 @@ def scrape_post_list() -> list[PostMeta]:
         if page > MAX_PAGES:
             logger.warning("Newsletter scraper: reached MAX_PAGES (%d), stopping pagination", MAX_PAGES)
             break
-        url = BASE_URL if page == 1 else f"{BASE_URL}?page={page}"
+        url = LISTING_URL if page == 1 else f"{LISTING_URL}?page={page}"
         logger.info("Newsletter scraper: fetching post list page %d", page)
 
         try:
@@ -179,10 +185,10 @@ def scrape_post_content(url: str) -> str:
     for tag in soup.find_all(["nav", "footer", "header", "script", "style", "aside", "form"]):
         tag.decompose()
 
-    # Beehiiv post content sits in a specific container; try multiple selectors
+    # Shopify blog post content selectors (most specific first)
     content = (
-        soup.find(attrs={"data-testid": "post-content"})
-        or soup.find(class_=re.compile(r"post[-_]content|article[-_]body|entry[-_]content", re.I))
+        soup.find(class_=re.compile(r"article[-_]?(body|content|template|rte)", re.I))
+        or soup.find(class_=re.compile(r"rte|blog[-_]?post[-_]?content|post[-_]?content", re.I))
         or soup.find("article")
         or soup.find("main")
     )
@@ -193,6 +199,18 @@ def scrape_post_content(url: str) -> str:
     # Last-resort: full body
     body = soup.find("body")
     return body.get_text(separator="\n", strip=True) if body else ""
+
+
+def scrape_latest_post() -> PostMeta | None:
+    """Return the most recent post from the first listing page, or None."""
+    try:
+        soup = _get(LISTING_URL)
+    except Exception as exc:
+        logger.error("Newsletter scraper: failed to fetch listing page: %s", exc)
+        return None
+    posts = _extract_posts_from_page(soup)
+    # First card in the listing is the newest post
+    return posts[0] if posts else None
 
 
 def iter_new_posts(known_urls: set[str]) -> Iterator[PostMeta]:
