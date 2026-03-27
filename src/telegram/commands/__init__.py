@@ -5,6 +5,7 @@ from .health import HealthMixin
 from .nutrition import NutritionMixin, _AWAITING_BARCODE_QUANTITY, _AWAITING_CONFIRMATION, _AWAITING_EAN_FALLBACK_NAME, _AWAITING_EAN_FALLBACK_QUANTITY, _AWAITING_PRESET_ITEMS
 from .system import SystemMixin
 from .training import TrainingMixin
+from .xread import XreadMixin
 
 __all__ = [
     "BodyMixin",
@@ -12,6 +13,7 @@ __all__ = [
     "NutritionMixin",
     "SystemMixin",
     "TrainingMixin",
+    "XreadMixin",
     "_AWAITING_CONFIRMATION",
     "_AWAITING_BARCODE_QUANTITY",
     "_AWAITING_EAN_FALLBACK_NAME",

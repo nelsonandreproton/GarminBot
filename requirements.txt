@@ -14,3 +14,4 @@ beautifulsoup4>=4.12.0
 psutil>=5.9.0          # HetznerCheck: system metrics (CPU, RAM, disk, network)
 docker>=6.0.0          # HetznerCheck: Docker container list
 pyyaml>=6.0            # HetznerCheck: config.yml parsing
+git+https://github.com/nelsonandreproton/Xread.git  # Xread: Twitter/X post analyser

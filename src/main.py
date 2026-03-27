@@ -179,6 +179,25 @@ def run() -> None:
     if config.newsletter_enabled and config.groq_api_key:
         tg_bot._newsletter_check = make_newsletter_job(repo, tg_bot, config.groq_api_key)
 
+    # Wire xread callback so /xread can fetch and analyse tweets
+    _obsidian_vault_path = os.environ.get("OBSIDIAN_VAULT_PATH", "")
+    if config.groq_api_key and _obsidian_vault_path:
+        try:
+            from xread import fetch_tweet, analyse_tweet, write_to_vault
+
+            def _xread_callback(url: str):
+                tweet = fetch_tweet(url)
+                insight = analyse_tweet(tweet, vault_path=_obsidian_vault_path)
+                write_to_vault(tweet, insight, vault_path=_obsidian_vault_path)
+                return insight.title, insight.takeaways
+
+            tg_bot._xread_callback = _xread_callback
+            logger.info("Xread enabled (vault: %s)", _obsidian_vault_path)
+        except ImportError:
+            logger.warning("xread package not installed — /xread disabled")
+    else:
+        logger.info("Xread disabled (OBSIDIAN_VAULT_PATH or GROQ_API_KEY missing)")
+
     # Register commands with BotFather
     asyncio.get_event_loop().run_until_complete(tg_bot.register_commands())
 

@@ -42,6 +42,7 @@ from .commands import (
     NutritionMixin,
     SystemMixin,
     TrainingMixin,
+    XreadMixin,
     _AWAITING_BARCODE_QUANTITY,
     _AWAITING_CONFIRMATION,
     _AWAITING_EAN_FALLBACK_NAME,
@@ -56,7 +57,7 @@ def _on_send_retry(retry_state) -> None:
     logger.warning("Telegram send attempt %d failed: %s", retry_state.attempt_number, retry_state.outcome.exception())
 
 
-class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemMixin):
+class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemMixin, XreadMixin):
     """Wraps python-telegram-bot for sending messages and handling commands.
 
     Command implementations are split across mixin classes:
@@ -65,6 +66,7 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
       - NutritionMixin → /comi /nutricao /apagar /preset (+ conversation)
       - TrainingMixin → /treinei /progresso /equipamento /sync_treino /sync_atividades
       - SystemMixin  → /sync /status /ajuda /exportar /backfill
+      - XreadMixin   → /xread
     """
 
     def __init__(
@@ -84,6 +86,7 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
         self._garmin_report: Callable | None = None    # Set by main.py after bot creation
         self._newsletter_check: Callable | None = None  # Set by main.py if newsletter enabled
         self._newsletter_bulk: Callable | None = None   # Set by main.py if newsletter enabled
+        self._xread_callback: Callable | None = None    # Set by main.py if xread enabled
         self._app: Application | None = None
         # NutritionService (lazy init — only if GROQ_API_KEY is set)
         self._nutrition_service = None
@@ -227,6 +230,7 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
         app.add_handler(_cmd("mes", self._cmd_mes))
         app.add_handler(_cmd("sync", self._cmd_sync))
         app.add_handler(_cmd("pump", self._cmd_pump))
+        app.add_handler(_cmd("xread", self._cmd_xread))
         app.add_handler(_cmd("status", self._cmd_status))
         app.add_handler(_cmd("ajuda", self._cmd_ajuda))
         app.add_handler(_cmd("help", self._cmd_ajuda))
@@ -313,6 +317,7 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
             BotCommand("treinei", "Registar treino feito (ex: /treinei Bench 4x8)"),
             BotCommand("progresso", "Ver histórico de exercício (ex: /progresso bench press)"),
             BotCommand("pump", "Ver insights do artigo de hoje do The Pump"),
+            BotCommand("xread", "Analisar tweet e guardar no Obsidian (ex: /xread <url>)"),
             BotCommand("server_status", "Estado atual do servidor Hetzner"),
             BotCommand("container_disk", "Uso de disco por container Docker"),
             BotCommand("canticos", "Cânticos do Caminho (ex: /canticos João 3:16)"),
