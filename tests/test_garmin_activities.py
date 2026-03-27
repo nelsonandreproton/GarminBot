@@ -106,15 +106,16 @@ def test_training_summary_empty(repo):
 
 
 def test_training_summary_manual_only(repo):
-    repo.upsert_training_entry(date(2026, 2, 25), "Treino pesado")
+    day = date.today() - timedelta(days=1)
+    repo.upsert_training_entry(day, "Treino pesado")
     result = repo.get_training_summary_for_llm(days=7)
     assert len(result) == 1
     assert result[0]["description"] == "Treino pesado"
-    assert result[0]["date"] == "2026-02-25"
+    assert result[0]["date"] == day.isoformat()
 
 
 def test_training_summary_garmin_only(repo):
-    day = date(2026, 2, 25)
+    day = date.today() - timedelta(days=1)
     repo.upsert_garmin_activity(1001, day, "Musculação", "strength_training", 45, 320, None)
     result = repo.get_training_summary_for_llm(days=7)
     assert len(result) == 1
@@ -124,7 +125,7 @@ def test_training_summary_garmin_only(repo):
 
 
 def test_training_summary_combines_manual_and_garmin(repo):
-    day = date(2026, 2, 25)
+    day = date.today() - timedelta(days=1)
     repo.upsert_training_entry(day, "Nota manual")
     repo.upsert_garmin_activity(1001, day, "Corrida", "running", 30, 250, 5.0)
     result = repo.get_training_summary_for_llm(days=7)
@@ -136,7 +137,7 @@ def test_training_summary_combines_manual_and_garmin(repo):
 
 
 def test_training_summary_multiple_garmin_same_day(repo):
-    day = date(2026, 2, 25)
+    day = date.today() - timedelta(days=1)
     repo.upsert_garmin_activity(1001, day, "Musculação", "strength_training", 45, 320, None)
     repo.upsert_garmin_activity(1002, day, "Corrida", "running", 25, 200, 4.0)
     result = repo.get_training_summary_for_llm(days=7)
@@ -147,24 +148,28 @@ def test_training_summary_multiple_garmin_same_day(repo):
 
 
 def test_training_summary_ordered_newest_first(repo):
-    repo.upsert_training_entry(date(2026, 2, 23), "Dia antigo")
-    repo.upsert_training_entry(date(2026, 2, 25), "Dia recente")
+    older = date.today() - timedelta(days=3)
+    newer = date.today() - timedelta(days=1)
+    repo.upsert_training_entry(older, "Dia antigo")
+    repo.upsert_training_entry(newer, "Dia recente")
     result = repo.get_training_summary_for_llm(days=7)
-    assert result[0]["date"] == "2026-02-25"
-    assert result[1]["date"] == "2026-02-23"
+    assert result[0]["date"] == newer.isoformat()
+    assert result[1]["date"] == older.isoformat()
 
 
 def test_training_summary_respects_days_window(repo):
-    repo.upsert_garmin_activity(9999, date(2026, 2, 10), "Old", "running", 20, 100, None)
-    repo.upsert_garmin_activity(1001, date(2026, 2, 25), "Recent", "running", 30, 200, None)
+    old_day = date.today() - timedelta(days=15)
+    recent_day = date.today() - timedelta(days=1)
+    repo.upsert_garmin_activity(9999, old_day, "Old", "running", 20, 100, None)
+    repo.upsert_garmin_activity(1001, recent_day, "Recent", "running", 30, 200, None)
     result = repo.get_training_summary_for_llm(days=7)
     dates = [r["date"] for r in result]
-    assert "2026-02-25" in dates
-    assert "2026-02-10" not in dates
+    assert recent_day.isoformat() in dates
+    assert old_day.isoformat() not in dates
 
 
 def test_training_summary_garmin_with_distance(repo):
-    day = date(2026, 2, 25)
+    day = date.today() - timedelta(days=1)
     repo.upsert_garmin_activity(1001, day, "Corrida", "running", 30, 280, 5.5)
     result = repo.get_training_summary_for_llm(days=7)
     assert "5.5km" in result[0]["description"]

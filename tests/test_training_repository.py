@@ -56,7 +56,7 @@ def test_set_setting_multiple_keys(repo):
 # ------------------------------------------------------------------ #
 
 def test_upsert_training_entry_insert(repo):
-    d = date(2026, 2, 25)
+    d = date.today() - timedelta(days=1)
     repo.upsert_training_entry(d, "Bench press 4x8, Pull-ups 3x10")
     entries = repo.get_recent_training(30)
     assert len(entries) == 1
@@ -65,7 +65,7 @@ def test_upsert_training_entry_insert(repo):
 
 
 def test_upsert_training_entry_update_same_day(repo):
-    d = date(2026, 2, 25)
+    d = date.today() - timedelta(days=1)
     repo.upsert_training_entry(d, "First entry")
     repo.upsert_training_entry(d, "Updated entry")
     entries = repo.get_recent_training(30)
