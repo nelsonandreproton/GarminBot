@@ -12,6 +12,7 @@ A Python bot that syncs Garmin Connect data daily and sends formatted health sum
 - **Macro goals** — set daily targets for calories, protein, fat, and carbs; see remaining macros after each meal
 - **Nutrition recommendations** — LLM-generated daily advice based on yesterday's intake vs goals and Garmin data
 - **Workout recommendations** — daily gym workout based on sleep, nutrition, equipment, and movement patterns (Squat/Push/Pull/Hinge/Carry)
+- **Tweet/X analyser** — `/xread <url>` fetches a tweet, generates personalised takeaways via Groq, and saves a note to the Obsidian vault (optional)
 - **All commands in Portuguese** — `/hoje`, `/ontem`, `/semana`, `/mes`, `/sync`, `/status`, `/comi`, `/nutricao`, `/treino`
 - **Robust error handling** — retries with exponential backoff, partial data support, Telegram error alerts
 - **Token persistence** — Garmin OAuth2 token saved to disk, reused across restarts
@@ -93,9 +94,11 @@ All settings live in `.env`. See `.env.example` for the full list with comments.
 | `TIMEZONE` | `Europe/Lisbon` | Timezone for scheduling |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `LOG_FILE` | `./logs/bot.log` | Log file path |
-| `GROQ_API_KEY` | — | Groq API key (optional, enables `/comi`, `/nutricao`, `/treino`) |
+| `GROQ_API_KEY` | — | Groq API key (optional, enables `/comi`, `/nutricao`, `/treino`, `/xread`) |
 | `GYM_EQUIPMENT` | — | Equipment list (optional, enables workout recommendations) |
 | `GYM_TRAINING_MINUTES` | `45` | Max workout duration in minutes |
+| `OBSIDIAN_VAULT_PATH` | — | Path to Obsidian vault (optional, enables `/xread` note saving) |
+| `GITHUB_TOKEN` | — | GitHub PAT with `repo` scope (optional, enables `/xread` vault push) |
 
 ## Telegram Commands
 
@@ -112,6 +115,7 @@ All settings live in `.env`. See `.env.example` for the full list with comments.
 | `/apagar` | Delete last food entry |
 | `/treino` | Generate a workout recommendation for today |
 | `/objetivo` | View or set goals (passos/sono/peso/calorias/proteina/gordura/hidratos) |
+| `/xread <url>` | Analyse a tweet/X post and save insights to Obsidian |
 
 ## Deployment
 
