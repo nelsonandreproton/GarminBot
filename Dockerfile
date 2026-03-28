@@ -18,6 +18,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Git identity for vault commits (xread writes notes to the Obsidian vault)
+RUN git config --global user.email "garminbot@localhost" && \
+    git config --global user.name "GarminBot"
+
 COPY src/ ./src/
 
 # Ensure data/logs dirs exist with correct ownership
