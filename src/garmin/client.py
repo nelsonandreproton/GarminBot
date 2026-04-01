@@ -132,7 +132,7 @@ class GarminClient:
         self._email = email
         self._password = password
         self._client: garminconnect.Garmin | None = None
-        self._rate_limit_until: float = 0.0
+        self._rate_limit_until: float = 0.0  # NOTE: resets on container restart — one extra 429 per redeploy is acceptable
 
     def _handle_rate_limit(self) -> None:
         self._rate_limit_until = _time.monotonic() + _RATE_LIMIT_BACKOFF_SECONDS
@@ -141,6 +141,8 @@ class GarminClient:
     def _check_rate_limit_guard(self) -> None:
         remaining = self._rate_limit_until - _time.monotonic()
         if remaining > 0:
+            # Reuse GarminConnectTooManyRequestsError so _is_rate_limit() and format_error_message()
+            # handle this the same as a real API 429 — no new exception type needed.
             raise garminconnect.GarminConnectTooManyRequestsError(
                 f"429 backoff activo — aguarda ainda {int(remaining // 60)} min"
             )
@@ -191,7 +193,9 @@ class GarminClient:
         score = daily.get("sleepScores", {}).get("overall", {}).get("value")
         # Some firmware versions report score at top level
         if score is None:
-            score = daily.get("averageSpO2Value")  # fallback not ideal; log it
+            score = daily.get("averageSpO2Value")
+            if score is not None:
+                logger.debug("Sleep score fallback to averageSpO2Value for %s: %s", date_str, score)
         score_val = int(score) if score is not None else None
 
         def _to_min(seconds: int | None) -> int | None:
@@ -275,12 +279,18 @@ class GarminClient:
             if stats:
                 result["resting_heart_rate"] = stats.get("restingHeartRate")
         except Exception as exc:
+            if _is_rate_limit(exc):
+                self._handle_rate_limit()
+                raise
             logger.debug("Could not fetch HR for %s: %s", date_str, exc)
         try:
             stress = client.get_stress_data(date_str)
             if stress:
                 result["avg_stress"] = stress.get("avgStressLevel")
         except Exception as exc:
+            if _is_rate_limit(exc):
+                self._handle_rate_limit()
+                raise
             logger.debug("Could not fetch stress for %s: %s", date_str, exc)
         try:
             bb = client.get_body_battery(date_str)
@@ -290,6 +300,9 @@ class GarminClient:
                     result["body_battery_high"] = max(values)
                     result["body_battery_low"] = min(values)
         except Exception as exc:
+            if _is_rate_limit(exc):
+                self._handle_rate_limit()
+                raise
             logger.debug("Could not fetch body battery for %s: %s", date_str, exc)
         try:
             spo2 = client.get_spo2_data(date_str)
@@ -298,6 +311,9 @@ class GarminClient:
                 if avg is not None:
                     result["spo2_avg"] = round(float(avg), 1)
         except Exception as exc:
+            if _is_rate_limit(exc):
+                self._handle_rate_limit()
+                raise
             logger.debug("Could not fetch SpO2 for %s: %s", date_str, exc)
         try:
             intensity = client.get_intensity_minutes_data(date_str)
@@ -307,6 +323,9 @@ class GarminClient:
                 result["intensity_moderate_min"] = int(mod) if mod is not None else None
                 result["intensity_vigorous_min"] = int(vig) if vig is not None else None
         except Exception as exc:
+            if _is_rate_limit(exc):
+                self._handle_rate_limit()
+                raise
             logger.debug("Could not fetch intensity minutes for %s: %s", date_str, exc)
         return result
 
@@ -331,6 +350,9 @@ class GarminClient:
                     logger.debug("Weight for %s from get_daily_weigh_ins: %.1f kg", date_str, weight)
                     return weight
         except Exception as exc:
+            if _is_rate_limit(exc):
+                self._handle_rate_limit()
+                raise
             logger.debug("get_daily_weigh_ins failed for %s: %s", date_str, exc)
 
         # Fall back to get_body_composition
@@ -343,6 +365,9 @@ class GarminClient:
                     logger.debug("Weight for %s from get_body_composition: %.1f kg", date_str, weight)
                     return weight
         except Exception as exc:
+            if _is_rate_limit(exc):
+                self._handle_rate_limit()
+                raise
             logger.debug("get_body_composition failed for %s: %s", date_str, exc)
 
         logger.warning("No weight data for %s (both endpoints returned nothing)", date_str)

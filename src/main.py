@@ -11,7 +11,7 @@ from datetime import date, timedelta
 
 from .config import ConfigError, load_config
 from .database.repository import Repository
-from .garmin.client import GarminClient
+from .garmin.client import GarminClient, _is_rate_limit
 from .scheduler.jobs import make_newsletter_job, make_report_callback, make_sync_job
 from .telegram.bot import TelegramBot
 from .utils.logger import setup_logging
@@ -43,7 +43,7 @@ def _run_health_checks(garmin: GarminClient, repo: Repository, bot_token: str, c
             bot = Bot(token=bot_token)
             me = await bot.get_me()
             logger.info("Health: Telegram OK (@%s)", me.username)
-        asyncio.get_event_loop().run_until_complete(_ping())
+        asyncio.run(_ping())
     except Exception as exc:
         logger.warning("Health: Telegram check failed: %s", exc)
 
@@ -66,7 +66,7 @@ def _run_startup_backfill(garmin: GarminClient, repo: Repository) -> None:
             logger.info("Startup backfill: filled %s", day)
             time.sleep(2)  # rate limiting
         except Exception as exc:
-            if "429" in str(exc):
+            if _is_rate_limit(exc):
                 logger.warning("Startup backfill: Garmin 429 — stopping backfill to avoid extending ban")
                 break
             logger.warning("Startup backfill: failed for %s: %s", day, exc)
@@ -107,6 +107,9 @@ def run() -> None:
                 repo.log_sync("success")
                 time.sleep(2)
             except Exception as exc:
+                if _is_rate_limit(exc):
+                    logger.warning("Backfill: Garmin 429 — stopping to avoid extending ban")
+                    break
                 repo.log_sync("error", str(exc))
                 logger.error("Backfill failed for %s: %s", day, exc)
 
@@ -202,7 +205,7 @@ def run() -> None:
         logger.info("Xread disabled (OBSIDIAN_VAULT_PATH or GROQ_API_KEY missing)")
 
     # Register commands with BotFather
-    asyncio.get_event_loop().run_until_complete(tg_bot.register_commands())
+    asyncio.run(tg_bot.register_commands())
 
     # Graceful shutdown handler
     def _shutdown(signum, frame):

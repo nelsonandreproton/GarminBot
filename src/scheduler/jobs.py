@@ -45,7 +45,7 @@ def make_sync_job(garmin: GarminClient, repo: Repository) -> callable:
             repo.log_sync(status)
             logger.info("Sync: complete for %s (status=%s)", summary.date, status)
         except Exception as exc:
-            repo.log_sync("error", str(exc))
+            repo.log_sync("error", str(exc)[:500])
             logger.error("Sync: failed: %s", exc, exc_info=True)
             raise
 
