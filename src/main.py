@@ -66,6 +66,9 @@ def _run_startup_backfill(garmin: GarminClient, repo: Repository) -> None:
             logger.info("Startup backfill: filled %s", day)
             time.sleep(2)  # rate limiting
         except Exception as exc:
+            if "429" in str(exc):
+                logger.warning("Startup backfill: Garmin 429 — stopping backfill to avoid extending ban")
+                break
             logger.warning("Startup backfill: failed for %s: %s", day, exc)
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time as _time
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
@@ -10,6 +11,7 @@ from typing import Any
 import garminconnect
 from tenacity import (
     retry,
+    retry_if_exception,
     retry_if_exception_type,
     stop_after_attempt,
     wait_exponential,
@@ -18,6 +20,12 @@ from tenacity import (
 from .auth import create_garmin_client, invalidate_token
 
 logger = logging.getLogger(__name__)
+
+_RATE_LIMIT_BACKOFF_SECONDS = 3600  # 1 hour
+
+
+def _is_rate_limit(exc: BaseException) -> bool:
+    return "429" in str(exc) or isinstance(exc, garminconnect.GarminConnectTooManyRequestsError)
 
 
 @dataclass
@@ -124,6 +132,18 @@ class GarminClient:
         self._email = email
         self._password = password
         self._client: garminconnect.Garmin | None = None
+        self._rate_limit_until: float = 0.0
+
+    def _handle_rate_limit(self) -> None:
+        self._rate_limit_until = _time.monotonic() + _RATE_LIMIT_BACKOFF_SECONDS
+        logger.warning("Garmin 429 — backoff de %d min activado", _RATE_LIMIT_BACKOFF_SECONDS // 60)
+
+    def _check_rate_limit_guard(self) -> None:
+        remaining = self._rate_limit_until - _time.monotonic()
+        if remaining > 0:
+            raise garminconnect.GarminConnectTooManyRequestsError(
+                f"429 backoff activo — aguarda ainda {int(remaining // 60)} min"
+            )
 
     def authenticate(self) -> None:
         """Initialise (or refresh) the authenticated Garmin client."""
@@ -135,7 +155,7 @@ class GarminClient:
         return self._client  # type: ignore[return-value]
 
     @retry(
-        retry=retry_if_exception_type(Exception),
+        retry=retry_if_exception(lambda exc: not _is_rate_limit(exc)),
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=2, min=4, max=30),
         before_sleep=_on_retry,
@@ -188,7 +208,7 @@ class GarminClient:
         )
 
     @retry(
-        retry=retry_if_exception_type(Exception),
+        retry=retry_if_exception(lambda exc: not _is_rate_limit(exc)),
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=2, min=4, max=30),
         before_sleep=_on_retry,
@@ -410,6 +430,7 @@ class GarminClient:
         Returns:
             DailySummary combining sleep and activity data, stored under yesterday's date.
         """
+        self._check_rate_limit_guard()
         today = date.today()
         yesterday = today - timedelta(days=1)
         logger.info("Fetching Garmin data: sleep for %s, activity for %s", today, yesterday)
@@ -421,12 +442,18 @@ class GarminClient:
             # Sleep: query today — Garmin tags last night's sleep with today's date
             sleep = self.get_sleep_data(today)
         except Exception as exc:
+            if _is_rate_limit(exc):
+                self._handle_rate_limit()
+                raise
             logger.error("Failed to fetch sleep data: %s", exc)
 
         try:
             # Activity: query yesterday — steps/calories belong to the day they happened
             activity = self.get_activity_data(yesterday)
         except Exception as exc:
+            if _is_rate_limit(exc):
+                self._handle_rate_limit()
+                raise
             logger.error("Failed to fetch activity data: %s", exc)
 
         health = self.get_health_data(yesterday)
@@ -449,6 +476,7 @@ class GarminClient:
         Returns:
             DailySummary with all available data.
         """
+        self._check_rate_limit_guard()
         logger.info("Fetching Garmin data for specific date: %s", day)
         sleep = SleepData(hours=None, score=None, quality=None)
         activity = ActivityData(steps=None, active_calories=None, resting_calories=None)
@@ -461,11 +489,17 @@ class GarminClient:
                     sleep = candidate
                     break
             except Exception as exc:
+                if _is_rate_limit(exc):
+                    self._handle_rate_limit()
+                    raise
                 logger.debug("Sleep fetch for %s failed: %s", sleep_date, exc)
 
         try:
             activity = self.get_activity_data(day)
         except Exception as exc:
+            if _is_rate_limit(exc):
+                self._handle_rate_limit()
+                raise
             logger.error("Failed to fetch activity data for %s: %s", day, exc)
 
         health = self.get_health_data(day)
