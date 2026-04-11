@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 from pathlib import Path
@@ -59,8 +58,8 @@ def create_garmin_client(email: str, password: str) -> garminconnect.Garmin:
 
     if TOKEN_FILE.exists():
         try:
-            token_data = json.loads(TOKEN_FILE.read_text(encoding="utf-8"))
-            client.login(token_data)
+            token_str = TOKEN_FILE.read_text(encoding="utf-8")
+            client.login(tokenstore=token_str)
             logger.info("Garmin: reused existing token")
             return client
         except Exception as exc:
