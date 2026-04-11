@@ -59,7 +59,7 @@ def create_garmin_client(email: str, password: str) -> garminconnect.Garmin:
     if TOKEN_FILE.exists():
         try:
             token_str = TOKEN_FILE.read_text(encoding="utf-8")
-            client.login(tokenstore=token_str)
+            client.garth.loads(token_str)
             logger.info("Garmin: reused existing token")
             return client
         except Exception as exc:
