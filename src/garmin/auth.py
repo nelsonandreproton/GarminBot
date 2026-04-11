@@ -60,7 +60,8 @@ def create_garmin_client(email: str, password: str) -> garminconnect.Garmin:
         try:
             token_str = TOKEN_FILE.read_text(encoding="utf-8")
             client.garth.loads(token_str)
-            logger.info("Garmin: reused existing token")
+            client.display_name = client.garth.profile.get("displayName")
+            logger.info("Garmin: reused existing token (user=%s)", client.display_name)
             return client
         except Exception as exc:
             logger.warning("Garmin: saved token invalid (%s), re-authenticating", exc)
