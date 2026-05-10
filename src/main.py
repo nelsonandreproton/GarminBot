@@ -181,6 +181,17 @@ def run() -> None:
         except ImportError:
             logger.warning("HetznerCheck not available — /server_status and /container_disk disabled (PYTHONPATH set?)")
 
+    # PTEvents: register /alertas, /alertas_tipos, /alertas_severidade
+    _ptevents_base_url = os.environ.get("PTEVENTS_BASE_URL")
+    if _ptevents_base_url:
+        try:
+            from .telegram.commands.ptevents import register_ptevents_handler
+            register_ptevents_handler(app, base_url=_ptevents_base_url)
+        except ImportError as exc:
+            logger.warning("PTEvents handler not available — /alertas disabled (%s)", exc)
+    else:
+        logger.info("PTEvents disabled (PTEVENTS_BASE_URL not set)")
+
     # Wire newsletter check onto bot so /pump can call it on demand
     if config.newsletter_enabled and config.groq_api_key:
         tg_bot._newsletter_check = make_newsletter_job(repo, tg_bot, config.groq_api_key)
