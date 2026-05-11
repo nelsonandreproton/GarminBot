@@ -14,6 +14,15 @@ from ..telegram.bot import TelegramBot, _row_to_metrics
 
 logger = logging.getLogger(__name__)
 
+# Heartbeat integration — optional: silently skipped if module not available
+# (e.g. during local development without the HetznerCheck volume mounted).
+try:
+    from heartbeat import beat as _hb_beat  # mounted at /hetznercheck via PYTHONPATH
+    _HEARTBEAT_AVAILABLE = True
+except ImportError:
+    _HEARTBEAT_AVAILABLE = False
+    logger.debug("heartbeat module not available — liveness tracking disabled")
+
 
 def _run_async(coro) -> None:
     """Run an async coroutine synchronously from a sync context."""
@@ -41,12 +50,28 @@ def make_sync_job(garmin: GarminClient, repo: Repository) -> callable:
             metrics = garmin.to_metrics_dict(summary)
             repo.save_daily_metrics(summary.date, metrics)
 
-            status = "success" if metrics.get("garmin_sync_success") else "partial"
-            repo.log_sync(status)
-            logger.info("Sync: complete for %s (status=%s)", summary.date, status)
+            sync_status = "success" if metrics.get("garmin_sync_success") else "partial"
+            repo.log_sync(sync_status)
+            logger.info("Sync: complete for %s (status=%s)", summary.date, sync_status)
+
+            if _HEARTBEAT_AVAILABLE:
+                hb_status = "ok" if sync_status == "success" else "degraded"
+                _hb_beat(
+                    "GarminBot",
+                    status=hb_status,
+                    note=f"sync {sync_status} for {summary.date}",
+                    next_in_seconds=86400,  # expect next run in ~24h
+                )
         except Exception as exc:
             repo.log_sync("error", str(exc)[:500])
             logger.error("Sync: failed: %s", exc, exc_info=True)
+            if _HEARTBEAT_AVAILABLE:
+                _hb_beat(
+                    "GarminBot",
+                    status="error",
+                    note=f"sync failed: {str(exc)[:120]}",
+                    next_in_seconds=86400,
+                )
             raise
 
     return sync_yesterday_data_job
