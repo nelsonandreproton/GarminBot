@@ -492,6 +492,48 @@ class Repository:
                 ids.append(row.id)
         return ids
 
+    def upsert_fatsecret_entries(self, day: date, entries: list[dict]) -> dict:
+        """Upsert FatSecret diary entries for a day.
+
+        Matches on barcode (food_entry_id) + source='fatsecret'. On match,
+        updates all fields in place (handles user edits in the FatSecret app).
+        On no match, inserts a new row. Entries with a null barcode are always
+        inserted (no dedup key available) to avoid matching unrelated rows.
+
+        Never touches rows where source != 'fatsecret'.
+
+        Returns:
+            dict with keys 'inserted' and 'updated'.
+        """
+        inserted = 0
+        updated = 0
+        updatable_fields = ("name", "quantity", "unit", "calories", "protein_g", "fat_g", "carbs_g", "fiber_g")
+        with self._session() as session:
+            for entry in entries:
+                barcode = entry.get("barcode")
+                if barcode is None:
+                    # No dedup key — insert without lookup to avoid matching null-barcode rows
+                    row = FoodEntry(date=day, **{k: v for k, v in entry.items() if hasattr(FoodEntry, k)})
+                    session.add(row)
+                    inserted += 1
+                    continue
+                existing = (
+                    session.query(FoodEntry)
+                    .filter_by(barcode=barcode, source="fatsecret", date=day)
+                    .first()
+                )
+                if existing is not None:
+                    # Update in place — handles edits made in the FatSecret app
+                    for field in updatable_fields:
+                        if field in entry:
+                            setattr(existing, field, entry[field])
+                    updated += 1
+                else:
+                    row = FoodEntry(date=day, **{k: v for k, v in entry.items() if hasattr(FoodEntry, k)})
+                    session.add(row)
+                    inserted += 1
+        return {"inserted": inserted, "updated": updated}
+
     def get_food_entries(self, day: date) -> list[FoodEntry]:
         """Return all food entries for a day, ordered by created_at."""
         with self._session() as session:

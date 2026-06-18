@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GarminBot — Architecture</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 960px; margin: 0 auto; padding: 2rem; background: #0f172a; color: #e2e8f0; }
+  h1 { color: #38bdf8; border-bottom: 2px solid #1e3a5f; padding-bottom: .5rem; }
+  h2 { color: #7dd3fc; margin-top: 2rem; }
+  .badge { display: inline-block; background: #1e3a5f; color: #7dd3fc; border-radius: 4px; padding: 2px 8px; font-size: .8rem; margin: 2px; }
+  .card { background: #1e293b; border-radius: 8px; padding: 1.2rem; margin: 1rem 0; border: 1px solid #334155; }
+  svg { width: 100%; max-width: 800px; display: block; margin: 1rem auto; }
+  a { color: #38bdf8; }
+  .back { margin-bottom: 1.5rem; }
+</style>
+</head>
+<body>
+<div class="back"><a href="../index.html">← Back to Projects</a></div>
+<h1>GarminBot</h1>
+<div class="card">
+  <strong>Purpose:</strong> Telegram bot that syncs Garmin Connect health/activity data daily, sends formatted reports with weekly summaries, exercise charts, and integrates nutrition tracking with Groq LLM-powered recommendations.
+</div>
+<div>
+  <span class="badge">Python</span><span class="badge">python-telegram-bot</span><span class="badge">Garmin Connect API</span><span class="badge">Groq LLM</span><span class="badge">SQLite</span><span class="badge">Docker</span><span class="badge">Matplotlib</span>
+</div>
+
+<h2>Architecture Overview</h2>
+<svg viewBox="0 0 800 420" xmlns="http://www.w3.org/2000/svg">
+  <rect width="800" height="420" fill="#0f172a"/>
+  <!-- Garmin Connect -->
+  <rect x="20" y="160" width="140" height="60" rx="8" fill="#1e3a5f" stroke="#38bdf8" stroke-width="1.5"/>
+  <text x="90" y="186" text-anchor="middle" fill="#7dd3fc" font-size="13">Garmin Connect</text>
+  <text x="90" y="205" text-anchor="middle" fill="#94a3b8" font-size="11">Health API</text>
+  <!-- Arrow -->
+  <line x1="160" y1="190" x2="210" y2="190" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arr)"/>
+  <!-- Sync Service -->
+  <rect x="210" y="140" width="150" height="100" rx="8" fill="#1e293b" stroke="#38bdf8" stroke-width="1.5"/>
+  <text x="285" y="168" text-anchor="middle" fill="#7dd3fc" font-size="13">Sync Service</text>
+  <text x="285" y="186" text-anchor="middle" fill="#94a3b8" font-size="11">garmin_sync.py</text>
+  <text x="285" y="204" text-anchor="middle" fill="#94a3b8" font-size="11">Daily Scheduler</text>
+  <text x="285" y="222" text-anchor="middle" fill="#94a3b8" font-size="11">chart_gen.py</text>
+  <!-- Arrow to DB -->
+  <line x1="285" y1="240" x2="285" y2="290" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arr)"/>
+  <!-- SQLite -->
+  <rect x="200" y="290" width="170" height="50" rx="8" fill="#1e3a5f" stroke="#64748b" stroke-width="1.5"/>
+  <text x="285" y="321" text-anchor="middle" fill="#94a3b8" font-size="13">SQLite Database</text>
+  <!-- Arrow sync → bot -->
+  <line x1="360" y1="190" x2="430" y2="190" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arr)"/>
+  <!-- Telegram Bot -->
+  <rect x="430" y="140" width="150" height="100" rx="8" fill="#1e293b" stroke="#38bdf8" stroke-width="1.5"/>
+  <text x="505" y="168" text-anchor="middle" fill="#7dd3fc" font-size="13">Telegram Bot</text>
+  <text x="505" y="186" text-anchor="middle" fill="#94a3b8" font-size="11">bot.py</text>
+  <text x="505" y="204" text-anchor="middle" fill="#94a3b8" font-size="11">Commands/Handlers</text>
+  <text x="505" y="222" text-anchor="middle" fill="#94a3b8" font-size="11">Weekly Reports</text>
+  <!-- Arrow bot → Groq -->
+  <line x1="580" y1="190" x2="640" y2="190" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arr)"/>
+  <!-- Groq LLM -->
+  <rect x="640" y="160" width="130" height="60" rx="8" fill="#1e3a5f" stroke="#38bdf8" stroke-width="1.5"/>
+  <text x="705" y="186" text-anchor="middle" fill="#7dd3fc" font-size="13">Groq LLM API</text>
+  <text x="705" y="204" text-anchor="middle" fill="#94a3b8" font-size="11">Recommendations</text>
+  <!-- Arrow bot → User -->
+  <line x1="505" y1="140" x2="505" y2="80" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arr)"/>
+  <rect x="420" y="20" width="170" height="55" rx="8" fill="#1e3a5f" stroke="#38bdf8" stroke-width="1.5"/>
+  <text x="505" y="48" text-anchor="middle" fill="#7dd3fc" font-size="13">Telegram User</text>
+  <text x="505" y="65" text-anchor="middle" fill="#94a3b8" font-size="11">Reports + Charts</text>
+  <!-- DB to bot -->
+  <line x1="370" y1="315" x2="430" y2="315" stroke="#64748b" stroke-width="1" stroke-dasharray="4"/>
+  <line x1="430" y1="315" x2="430" y2="240" stroke="#64748b" stroke-width="1" stroke-dasharray="4"/>
+  <!-- Scheduler -->
+  <rect x="20" y="20" width="150" height="55" rx="8" fill="#1e3a5f" stroke="#64748b" stroke-width="1.5"/>
+  <text x="95" y="48" text-anchor="middle" fill="#7dd3fc" font-size="13">Cron Scheduler</text>
+  <text x="95" y="65" text-anchor="middle" fill="#94a3b8" font-size="11">Daily 08:00 UTC</text>
+  <line x1="95" y1="75" x2="95" y2="140" stroke="#64748b" stroke-width="1" stroke-dasharray="4"/>
+  <line x1="95" y1="140" x2="210" y2="155" stroke="#64748b" stroke-width="1" stroke-dasharray="4" marker-end="url(#arr2)"/>
+  <!-- Defs -->
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#38bdf8"/>
+    </marker>
+    <marker id="arr2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#64748b"/>
+    </marker>
+  </defs>
+  <!-- Labels -->
+  <text x="400" y="415" text-anchor="middle" fill="#475569" font-size="11">GarminBot — Daily Health Sync + Telegram Reporting</text>
+</svg>
+
+<h2>Key Workflows</h2>
+<div class="card">
+  <strong>Daily Sync (08:00 UTC)</strong><br>
+  Scheduler triggers → garmin_sync.py authenticates with Garmin Connect → fetches steps, HR, sleep, calories, workouts → stores in SQLite → generates Matplotlib charts → Telegram bot sends formatted daily report to subscriber.
+</div>
+<div class="card">
+  <strong>Weekly Summary (Sundays)</strong><br>
+  Aggregates 7-day data from SQLite → calculates trends → Groq LLM generates personalized recommendations → sends rich report with charts to Telegram.
+</div>
+<div class="card">
+  <strong>Nutrition Tracking</strong><br>
+  User sends meal via Telegram → bot processes natural language → logs macros in SQLite → tracks against daily goals → reports caloric deficit/surplus.
+</div>
+
+<h2>Components</h2>
+<div class="card">
+  <ul>
+    <li><strong>garmin_sync.py</strong> — Authenticates and fetches data from Garmin Connect</li>
+    <li><strong>bot.py</strong> — Telegram bot with commands (/today, /week, /nutrition)</li>
+    <li><strong>chart_gen.py</strong> — Matplotlib chart generation for activity trends</li>
+    <li><strong>scheduler</strong> — APScheduler for daily/weekly cron tasks</li>
+    <li><strong>SQLite DB</strong> — Persists activity, nutrition, and subscriber data</li>
+    <li><strong>Groq API</strong> — LLM-powered workout and nutrition recommendations</li>
+  </ul>
+</div>
+</body>
+</html>

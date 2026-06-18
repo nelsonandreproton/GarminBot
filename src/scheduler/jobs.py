@@ -5,11 +5,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import time
 from datetime import date, timedelta
 
 from ..database.repository import Repository
 from ..garmin.client import GarminClient
+from ..nutrition.fatsecret_mapper import map_fatsecret_entries
 from ..telegram.bot import TelegramBot, _row_to_metrics
 
 logger = logging.getLogger(__name__)
@@ -33,12 +33,17 @@ def _run_async(coro) -> None:
         loop.close()
 
 
-def make_sync_job(garmin: GarminClient, repo: Repository) -> callable:
+def make_sync_job(garmin: GarminClient, repo: Repository, fatsecret=None) -> callable:
     """Return a callable that syncs yesterday's Garmin data to the database.
 
     Args:
         garmin: Authenticated GarminClient.
         repo: Database repository.
+        fatsecret: Optional FatSecretClient. When provided, yesterday's food
+            diary is also fetched and upserted after the Garmin save. A failure
+            in the FatSecret block is logged as a warning and never re-raised —
+            Garmin data already committed must not be rolled back by a nutrition
+            API failure.
 
     Returns:
         Callable used by /sync command.
@@ -73,6 +78,27 @@ def make_sync_job(garmin: GarminClient, repo: Repository) -> callable:
                     next_in_seconds=86400,
                 )
             raise
+
+        # FatSecret nutrition sync — separate try/except so a failure here
+        # never affects the already-committed Garmin data or re-raises.
+        if fatsecret is not None:
+            try:
+                raw = fatsecret.get_food_entries(summary.date)
+                mapped = map_fatsecret_entries(raw)
+                result = repo.upsert_fatsecret_entries(summary.date, mapped)
+                logger.info(
+                    "FatSecret: %d inserted, %d updated for %s",
+                    result["inserted"],
+                    result["updated"],
+                    summary.date,
+                )
+            except Exception as exc:
+                from ..nutrition.fatsecret_client import _redact
+                logger.warning(
+                    "FatSecret sync failed for %s (Garmin data unaffected): %s",
+                    summary.date,
+                    _redact(exc),
+                )
 
     return sync_yesterday_data_job
 

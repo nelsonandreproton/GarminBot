@@ -76,6 +76,7 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
         garmin_sync_callback: Callable | None = None,
         garmin_backfill_callback: Callable | None = None,
         garmin_client=None,
+        fatsecret_client=None,
     ) -> None:
         self._config = config
         self._repo = repository
@@ -83,6 +84,7 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
         self._garmin_sync = garmin_sync_callback
         self._garmin_backfill = garmin_backfill_callback
         self._garmin_client = garmin_client
+        self._fatsecret_client = fatsecret_client
         self._garmin_report: Callable | None = None    # Set by main.py after bot creation
         self._newsletter_check: Callable | None = None  # Set by main.py if newsletter enabled
         self._newsletter_bulk: Callable | None = None   # Set by main.py if newsletter enabled
@@ -122,8 +124,17 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
         self,
         metrics: dict[str, Any],
         show_sleep: bool = True,
+        show_budget: bool = False,
     ) -> None:
-        """Fetch weekly context, generate alerts, and send the daily summary message."""
+        """Fetch weekly context, generate alerts, and send the daily summary message.
+
+        Args:
+            metrics: Daily metrics dict (may include "nutrition" key).
+            show_sleep: Whether to include the Sono section. False for /hoje.
+            show_budget: Whether to append the raw intraday deficit control block.
+                         True only for /hoje (today-only view). Default False so
+                         /ontem and the morning report are unaffected.
+        """
         day = metrics.get("date", date.today())
         weekly = self._repo.get_weekly_stats(day)
         alerts: list[str] = []
@@ -143,6 +154,19 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
             alerts=alerts or None,
             show_sleep=show_sleep,
         )
+        if show_budget:
+            from .formatters import format_intraday_budget
+            # Resolve total_burned: prefer total_calories, fall back to active+resting
+            total_burned = metrics.get("total_calories")
+            if not total_burned:
+                active = metrics.get("active_calories")
+                resting = metrics.get("resting_calories")
+                if active is not None and resting is not None:
+                    total_burned = active + resting
+            eaten = metrics.get("nutrition") or {}
+            budget_block = format_intraday_budget(eaten, total_burned=total_burned)
+            if budget_block:
+                text = text + "\n\n" + budget_block
         await self._send(text)
         logger.info("Daily summary sent")
 

@@ -11,6 +11,7 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from ..helpers import _is_rate_limited, _row_to_metrics, safe_command
+from ...nutrition.fatsecret_mapper import map_fatsecret_entries
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,17 @@ class HealthMixin:
             metrics["resting_calories"] = activity.resting_calories
             metrics["total_calories"] = activity.total_calories
         metrics.update(health)
+        # Live-fetch today's FatSecret diary so the budget block shows current intake.
+        # This is a separate try/except: a FatSecret failure must NOT break the
+        # Garmin snapshot — we log a warning and continue.
+        if self._fatsecret_client is not None:
+            try:
+                raw = self._fatsecret_client.get_food_entries(today)
+                mapped = map_fatsecret_entries(raw)
+                self._repo.upsert_fatsecret_entries(today, mapped)
+            except Exception as exc:
+                from ...nutrition.fatsecret_client import _redact
+                logger.warning("FatSecret live fetch failed for /hoje (Garmin data unaffected): %s", _redact(exc))
         nutrition = self._repo.get_daily_nutrition(today)
         if nutrition.get("entry_count", 0) > 0:
             metrics["nutrition"] = {
@@ -54,7 +66,7 @@ class HealthMixin:
                 "resting_calories": metrics.get("resting_calories"),
                 "total_calories": metrics.get("total_calories"),
             }
-        await self.send_daily_summary(metrics, show_sleep=False)
+        await self.send_daily_summary(metrics, show_sleep=False, show_budget=True)
 
     @safe_command
     async def _cmd_ontem(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

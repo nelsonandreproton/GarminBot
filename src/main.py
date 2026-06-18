@@ -93,9 +93,14 @@ def run() -> None:
 
     garmin = GarminClient(config.garmin_email, config.garmin_password)
 
+    fatsecret = None
+    if config.fatsecret_consumer_key and config.fatsecret_consumer_secret:
+        from .nutrition.fatsecret_client import FatSecretClient
+        fatsecret = FatSecretClient(config.fatsecret_consumer_key, config.fatsecret_consumer_secret)
+
     def sync_callback() -> None:
         """Used by /sync command to trigger a manual sync."""
-        make_sync_job(garmin, repo)()
+        make_sync_job(garmin, repo, fatsecret)()
 
     def backfill_callback(missing_dates: list) -> None:
         import time
@@ -113,7 +118,7 @@ def run() -> None:
                 repo.log_sync("error", str(exc))
                 logger.error("Backfill failed for %s: %s", day, exc)
 
-    tg_bot = TelegramBot(config, repo, garmin_sync_callback=sync_callback, garmin_backfill_callback=backfill_callback, garmin_client=garmin)
+    tg_bot = TelegramBot(config, repo, garmin_sync_callback=sync_callback, garmin_backfill_callback=backfill_callback, garmin_client=garmin, fatsecret_client=fatsecret)
     tg_bot._garmin_report = make_report_callback(repo, tg_bot)
 
     # Health checks (non-fatal for Garmin/Telegram)

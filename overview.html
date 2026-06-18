@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GarminBot — Overview</title>
+  <style>
+    :root {
+      --bg: #0f1117; --surface: #1a1d27; --surface2: #222636; --border: #2e3347;
+      --accent: #6c8aff; --accent2: #a78bfa; --green: #34d399; --yellow: #fbbf24;
+      --red: #f87171; --orange: #fb923c; --cyan: #22d3ee; --text: #e2e8f0;
+      --muted: #8892a4; --radius: 10px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; line-height: 1.6; }
+    a { color: var(--accent); text-decoration: none; }
+    .page { max-width: 1100px; margin: 0 auto; padding: 40px 24px 80px; }
+    header { text-align: center; padding: 48px 0 36px; border-bottom: 1px solid var(--border); margin-bottom: 48px; }
+    header h1 { font-size: 2.4rem; font-weight: 700; letter-spacing: -0.5px; }
+    header h1 span { color: var(--accent); }
+    header p { color: var(--muted); margin-top: 10px; font-size: 1.05rem; }
+    .badge { display: inline-block; background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; padding: 3px 14px; font-size: 0.8rem; color: var(--muted); margin: 8px 4px 0; }
+    .badge.green { border-color: var(--green); color: var(--green); }
+    .badge.blue { border-color: var(--accent); color: var(--accent); }
+    .badge.purple { border-color: var(--accent2); color: var(--accent2); }
+    .badge.orange { border-color: var(--orange); color: var(--orange); }
+    .badge.cyan { border-color: var(--cyan); color: var(--cyan); }
+    h2 { font-size: 1.35rem; font-weight: 600; color: var(--accent); margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+    h2::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+    h3 { font-size: 1rem; font-weight: 600; margin-bottom: 8px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 24px; }
+    .card + .card { margin-top: 16px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    @media (max-width: 720px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+    .flow { display: flex; align-items: center; gap: 0; flex-wrap: wrap; margin-bottom: 8px; }
+    .flow-box { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; font-size: 0.83rem; text-align: center; min-width: 110px; }
+    .flow-box small { display: block; color: var(--muted); font-size: 0.72rem; margin-top: 2px; }
+    .flow-box.accent { border-color: var(--accent); color: var(--accent); }
+    .flow-box.green { border-color: var(--green); color: var(--green); }
+    .flow-box.yellow { border-color: var(--yellow); color: var(--yellow); }
+    .flow-box.purple { border-color: var(--accent2); color: var(--accent2); }
+    .flow-box.orange { border-color: var(--orange); color: var(--orange); }
+    .flow-box.cyan { border-color: var(--cyan); color: var(--cyan); }
+    .flow-arrow { color: var(--muted); font-size: 1.2rem; padding: 0 8px; }
+    .file-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    .file-table th { text-align: left; color: var(--muted); font-weight: 500; border-bottom: 1px solid var(--border); padding: 8px 12px 8px 0; }
+    .file-table td { padding: 9px 12px 9px 0; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .file-table tr:last-child td { border-bottom: none; }
+    .file-table code { font-family: monospace; color: var(--accent); background: var(--surface2); border-radius: 4px; padding: 1px 6px; font-size: 0.82rem; }
+    .pill { display: inline-block; border-radius: 20px; padding: 1px 10px; font-size: 0.75rem; font-weight: 600; border: 1px solid; }
+    .pill.blue { color: var(--accent); border-color: var(--accent); }
+    .pill.green { color: var(--green); border-color: var(--green); }
+    .pill.purple { color: var(--accent2); border-color: var(--accent2); }
+    .pill.orange { color: var(--orange); border-color: var(--orange); }
+    .pill.cyan { color: var(--cyan); border-color: var(--cyan); }
+    .step-file { font-family: monospace; font-size: 0.8rem; background: var(--surface2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 7px; display: inline-block; margin-bottom: 6px; color: var(--accent); }
+    .param-grid { display: grid; grid-template-columns: auto 1fr; gap: 6px 18px; font-size: 0.88rem; }
+    .param-grid .label { color: var(--muted); white-space: nowrap; }
+    .param-grid .val { color: var(--text); font-family: monospace; }
+    .tag { display: inline-block; background: var(--surface2); border: 1px solid var(--border); border-radius: 5px; padding: 2px 9px; font-size: 0.78rem; color: var(--muted); margin: 3px 2px; }
+    section { margin-bottom: 52px; }
+    .endpoint { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; margin-bottom: 10px; }
+    .method { display: inline-block; font-size: 0.75rem; font-weight: 700; border-radius: 4px; padding: 2px 8px; margin-right: 8px; }
+    .method.get { background: #1a4731; color: var(--green); }
+    .method.post { background: #1a2e4a; color: var(--accent); }
+    .endpoint-path { font-family: monospace; font-size: 0.9rem; }
+    .endpoint-desc { color: var(--muted); font-size: 0.85rem; margin-top: 6px; }
+  </style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <h1><span>Garmin</span>Bot</h1>
+    <p>Daily fitness sync, nutrition tracking, and workout recommendations via Telegram</p>
+    <div>
+      <span class="badge blue">Python 3.10+</span>
+      <span class="badge purple">Garmin Connect</span>
+      <span class="badge green">APScheduler</span>
+      <span class="badge orange">Groq LLM</span>
+      <span class="badge cyan">SQLAlchemy</span>
+      <span class="badge green">FatSecret API</span>
+      <span class="badge">Docker</span>
+    </div>
+  </header>
+
+  <section>
+    <h2>1. What this project does</h2>
+    <div class="grid-2">
+      <div class="card">
+        <h3>Purpose</h3>
+        <p style="color:var(--muted);font-size:0.9rem;margin-bottom:12px;">
+          Telegram bot that authenticates with Garmin Connect daily, fetches health metrics
+          (sleep, steps, calories, HRV), stores them in SQLite, and sends formatted reports
+          in Portuguese. Also handles nutrition logging via barcode/text and generates
+          AI-powered workout plans using Groq.
+        </p>
+        <div>
+          <span class="tag">Daily sync</span><span class="tag">Nutrition tracking</span>
+          <span class="tag">Workout recs</span><span class="tag">Weekly summaries</span>
+          <span class="tag">Barcode scanning</span><span class="tag">X/Twitter analysis</span>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Core stack</h3>
+        <div class="param-grid">
+          <span class="label">Garmin API</span><span class="val">garminconnect + garth (OAuth2)</span>
+          <span class="label">Telegram</span><span class="val">python-telegram-bot ≥20</span>
+          <span class="label">Scheduler</span><span class="val">APScheduler 3.10</span>
+          <span class="label">ORM</span><span class="val">SQLAlchemy 2.0 + SQLite</span>
+          <span class="label">LLM</span><span class="val">Groq API (free tier)</span>
+          <span class="label">Charts</span><span class="val">Matplotlib 3.7</span>
+          <span class="label">Nutrition</span><span class="val">FatSecret API (OAuth1) + OpenFoodFacts + pyzbar</span>
+          <span class="label">Timezone</span><span class="val">Europe/Lisbon</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>2. Main workflows</h2>
+    <div class="card">
+      <div style="overflow-x:auto;"><div style="min-width:600px;">
+        <p style="color:var(--muted);font-size:0.82rem;margin-bottom:12px;">Daily sync pipeline (07:00 → 08:00 Lisbon)</p>
+        <div class="flow">
+          <div class="flow-box cyan"><strong>Garmin Connect</strong><small>OAuth2 token (disk)</small></div>
+          <div class="flow-arrow">+</div>
+          <div class="flow-box green"><strong>FatSecret diary</strong><small>yesterday's food</small></div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box accent"><strong>repository.py</strong><small>SQLite upsert</small></div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box green"><strong>formatters.py</strong><small>PT message</small></div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box yellow"><strong>Telegram</strong><small>daily report</small></div>
+        </div>
+        <p style="color:var(--muted);font-size:0.82rem;margin:16px 0 12px;">Nutrition pipeline — FatSecret primary, /comi fallback</p>
+        <div class="flow">
+          <div class="flow-box green"><strong>FatSecret app</strong><small>you log food</small></div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box"><strong>fatsecret_client.py</strong><small>OAuth1 diary read</small></div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box cyan"><strong>fatsecret_mapper.py</strong><small>→ FoodEntry</small></div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box accent"><strong>SQLite</strong><small>upsert by id</small></div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box purple"><strong>/hoje</strong><small>deficit budget</small></div>
+        </div>
+        <p style="color:var(--muted);font-size:0.82rem;margin:16px 0 12px;">Manual fallback (/comi command)</p>
+        <div class="flow">
+          <div class="flow-box purple"><strong>/comi</strong><small>text or photo</small></div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box"><strong>barcode.py</strong><small>pyzbar decode</small></div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box cyan"><strong>OpenFoodFacts</strong><small>EAN lookup</small></div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box orange"><strong>Groq parser</strong><small>NLP fallback</small></div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box accent"><strong>SQLite</strong><small>nutrition table</small></div>
+        </div>
+        <p style="color:var(--muted);font-size:0.82rem;margin:16px 0 12px;">Workout recommendation (/treino command)</p>
+        <div class="flow">
+          <div class="flow-box"><strong>Yesterday's data</strong><small>sleep + nutrition</small></div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box orange"><strong>Groq LLM</strong><small>recommender.py</small></div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box green"><strong>45-min program</strong><small>Squat/Push/Pull/Hinge</small></div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box yellow"><strong>Telegram</strong><small>formatted workout</small></div>
+        </div>
+      </div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>3. Scheduled jobs</h2>
+    <div class="grid-3">
+      <div class="card">
+        <div class="step-file">07:00 daily</div>
+        <h3>Garmin Sync</h3>
+        <p style="color:var(--muted);font-size:0.88rem;">Authenticate → fetch sleep quality, steps, calorie burn, HRV, training readiness → upsert to SQLite with exponential backoff on 429.</p>
+      </div>
+      <div class="card">
+        <div class="step-file">08:00 daily</div>
+        <h3>Daily Report</h3>
+        <p style="color:var(--muted);font-size:0.88rem;">Query yesterday from DB → format in Portuguese → send via Telegram with emoji indicators for sleep, steps, and caloric balance.</p>
+      </div>
+      <div class="card">
+        <div class="step-file">Sunday 20:00</div>
+        <h3>Weekly Summary</h3>
+        <p style="color:var(--muted);font-size:0.88rem;">Aggregate 7 days → compute trends (streak, weekday vs weekend) → generate Matplotlib bar chart → send with Groq-written insights.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>4. Key files</h2>
+    <div class="card">
+      <table class="file-table">
+        <thead><tr><th>File</th><th>Role</th><th>Type</th></tr></thead>
+        <tbody>
+          <tr><td><code>src/main.py</code></td><td>Entry point — health check server + backfill logic</td><td><span class="pill blue">core</span></td></tr>
+          <tr><td><code>src/garmin/auth.py</code></td><td>OAuth2 token persistence and auto-refresh</td><td><span class="pill cyan">auth</span></td></tr>
+          <tr><td><code>src/garmin/client.py</code></td><td>Fetches sleep, activity, HRV, steps from Garmin Connect</td><td><span class="pill cyan">data</span></td></tr>
+          <tr><td><code>src/nutrition/fatsecret_client.py</code></td><td>FatSecret Platform API (OAuth1) — reads your food diary</td><td><span class="pill green">data</span></td></tr>
+          <tr><td><code>src/nutrition/fatsecret_mapper.py</code></td><td>Maps FatSecret entries → FoodEntry (idempotent upsert)</td><td><span class="pill green">data</span></td></tr>
+          <tr><td><code>src/nutrition/parser.py</code></td><td>Groq LLM → structured (food, qty, kcal, macros) — /comi fallback</td><td><span class="pill orange">AI</span></td></tr>
+          <tr><td><code>src/nutrition/openfoodfacts.py</code></td><td>OpenFoodFacts API client for EAN & text lookup</td><td><span class="pill cyan">data</span></td></tr>
+          <tr><td><code>src/training/recommender.py</code></td><td>Groq LLM workout plan generation</td><td><span class="pill orange">AI</span></td></tr>
+          <tr><td><code>src/telegram/bot.py</code></td><td>All Telegram commands and handlers</td><td><span class="pill blue">bot</span></td></tr>
+          <tr><td><code>src/scheduler/jobs.py</code></td><td>APScheduler job definitions</td><td><span class="pill green">sched</span></td></tr>
+          <tr><td><code>src/utils/charts.py</code></td><td>Matplotlib chart generation for weekly reports</td><td><span class="pill purple">util</span></td></tr>
+          <tr><td><code>src/database/repository.py</code></td><td>All SQLAlchemy DB read/write operations</td><td><span class="pill blue">db</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>5. Configuration</h2>
+    <div class="grid-2">
+      <div class="card">
+        <h3>Required .env variables</h3>
+        <div class="param-grid">
+          <span class="label">GARMIN_EMAIL</span><span class="val">Garmin account email</span>
+          <span class="label">GARMIN_PASSWORD</span><span class="val">Garmin account password</span>
+          <span class="label">TELEGRAM_BOT_TOKEN</span><span class="val">BotFather token</span>
+          <span class="label">TELEGRAM_CHAT_ID</span><span class="val">Destination chat ID</span>
+          <span class="label">GROQ_API_KEY</span><span class="val">Free tier — nutrition + workouts</span>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Optional configuration</h3>
+        <div class="param-grid">
+          <span class="label">DAILY_SYNC_TIME</span><span class="val">07:00 (HH:MM)</span>
+          <span class="label">DAILY_REPORT_TIME</span><span class="val">08:00 (HH:MM)</span>
+          <span class="label">WEEKLY_REPORT_DAY</span><span class="val">sunday</span>
+          <span class="label">TIMEZONE</span><span class="val">Europe/Lisbon</span>
+          <span class="label">GYM_EQUIPMENT</span><span class="val">Available gear list</span>
+          <span class="label">FATSECRET_CONSUMER_KEY</span><span class="val">OAuth1 key — diary sync</span>
+          <span class="label">FATSECRET_CONSUMER_SECRET</span><span class="val">OAuth1 secret</span>
+          <span class="label">OBSIDIAN_VAULT_PATH</span><span class="val">For /xread note saving</span>
+          <span class="label">GITHUB_TOKEN</span><span class="val">For vault GitHub push</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>6. Docker setup</h2>
+    <div class="card">
+      <div class="param-grid">
+        <span class="label">Image</span><span class="val">python:3.11-slim, non-root uid 1000</span>
+        <span class="label">Memory limit</span><span class="val">256m</span>
+        <span class="label">Health check</span><span class="val">HTTP :8080/health every 60s</span>
+        <span class="label">Volumes</span><span class="val">./data (SQLite), ./logs (rotating), ~/Obsidian (vault)</span>
+        <span class="label">Restart</span><span class="val">unless-stopped</span>
+        <span class="label">Deployed on</span><span class="val">Hetzner VPS via homeserver orchestrator</span>
+      </div>
+    </div>
+  </section>
+
+  <footer style="border-top:1px solid var(--border);padding-top:20px;text-align:center;color:var(--muted);font-size:0.82rem;">
+    GarminBot &nbsp;·&nbsp; Python + Garmin Connect + Groq + Telegram &nbsp;·&nbsp; <a href="../index.html">← All Projects</a>
+  </footer>
+</div>
+</body>
+</html>

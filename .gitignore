@@ -46,3 +46,8 @@ plan.md
 plan_*.md
 CLAUDE.md
 .claude/
+
+# FatSecret PoC — isolated venv and token file
+.venv-fatsecret/
+.venv-fatsecret-check/
+data/fatsecret_token.json

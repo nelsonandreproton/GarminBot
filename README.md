@@ -8,7 +8,9 @@ A Python bot that syncs Garmin Connect data daily and sends formatted health sum
 - **Daily Telegram report** — sends a formatted message with sleep quality, steps, and calorie data
 - **Weekly report** — every Sunday: 7-day stats, a bar chart, and smart insights
 - **Monthly stats** — via `/mes` command
-- **Nutrition tracking** — log food via text or barcode photo, with Groq LLM parsing (optional, free tier)
+- **Nutrition tracking (FatSecret)** — log food in the [FatSecret](https://www.fatsecret.com/) app; the bot reads your diary (calories + macros) via the FatSecret Platform API and folds it into the daily summary
+- **Manual nutrition fallback** — `/comi` still logs food via text or barcode photo with Groq LLM parsing (optional, free tier) when you forget to log in the app
+- **Intraday deficit control** — `/hoje` shows current Garmin burn, calories eaten (+ macros), current deficit %, and the intake budget for a 30% deficit, so you can decide what to eat for the rest of the day
 - **Macro goals** — set daily targets for calories, protein, fat, and carbs; see remaining macros after each meal
 - **Nutrition recommendations** — LLM-generated daily advice based on yesterday's intake vs goals and Garmin data
 - **Workout recommendations** — daily gym workout based on sleep, nutrition, equipment, and movement patterns (Squat/Push/Pull/Hinge/Carry)
@@ -76,6 +78,26 @@ python -m src.main
 
 On first run, the bot authenticates with Garmin and saves the token. A startup health check verifies Telegram connectivity.
 
+### 6. (Optional) Connect FatSecret for diary sync
+
+Log your food in the FatSecret app and let the bot read it automatically. This is a **one-time** OAuth setup:
+
+1. Register a developer app at [platform.fatsecret.com](https://platform.fatsecret.com/api/) and request **OAuth 1.0** credentials. Whitelist your machine's public IP in the portal.
+2. Put the credentials in `.env`:
+   ```bash
+   FATSECRET_CONSUMER_KEY=...
+   FATSECRET_CONSUMER_SECRET=...
+   ```
+3. Create a FatSecret account with **email + password** (the OAuth authorize page does not accept Google login) and log at least one day of food.
+4. Run the one-time token probe to authorize and save the access token:
+   ```bash
+   python scripts/fatsecret_probe.py --level 1   # prints an authorize URL, asks for the PIN
+   python scripts/fatsecret_probe.py --level 2 --date YYYY-MM-DD   # verify it reads your diary
+   ```
+   The token is saved to `data/fatsecret_token.json` (gitignored, chmod 600). The bot reuses it on every run — no further authorization needed.
+
+The morning sync then pulls yesterday's FatSecret diary alongside Garmin data, and `/hoje` reads today's diary live for the intraday deficit budget. If the credentials or token are absent, FatSecret sync is silently skipped (the bot still works with manual `/comi` logging).
+
 ## Configuration
 
 All settings live in `.env`. See `.env.example` for the full list with comments.
@@ -95,6 +117,8 @@ All settings live in `.env`. See `.env.example` for the full list with comments.
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `LOG_FILE` | `./logs/bot.log` | Log file path |
 | `GROQ_API_KEY` | — | Groq API key (optional, enables `/comi`, `/nutricao`, `/treino`, `/xread`) |
+| `FATSECRET_CONSUMER_KEY` | — | FatSecret OAuth1 consumer key (optional, enables FatSecret diary sync) |
+| `FATSECRET_CONSUMER_SECRET` | — | FatSecret OAuth1 consumer secret (optional) |
 | `GYM_EQUIPMENT` | — | Equipment list (optional, enables workout recommendations) |
 | `GYM_TRAINING_MINUTES` | `45` | Max workout duration in minutes |
 | `OBSIDIAN_VAULT_PATH` | — | Path to Obsidian vault (optional, enables `/xread` note saving) |
@@ -104,7 +128,7 @@ All settings live in `.env`. See `.env.example` for the full list with comments.
 
 | Command | Description |
 |---|---|
-| `/hoje` | Today's metrics (if already synced) |
+| `/hoje` | Today's live metrics + intraday deficit budget (Garmin burn, eaten calories/macros, current deficit %, 30%-deficit intake budget) |
 | `/ontem` | Yesterday's full summary with weekly comparison |
 | `/semana` | Last 7 days averages |
 | `/mes` | Last 30 days averages |
@@ -216,10 +240,12 @@ GarminBot/
 │   │   ├── models.py        # SQLAlchemy ORM models
 │   │   └── repository.py    # All read/write operations
 │   ├── nutrition/
-│   │   ├── parser.py        # Groq LLM: text → structured food items
-│   │   ├── service.py       # Orchestrates parse → lookup → fallback
-│   │   ├── openfoodfacts.py # OpenFoodFacts API client
-│   │   └── barcode.py       # Barcode decoding from photos
+│   │   ├── parser.py            # Groq LLM: text → structured food items
+│   │   ├── service.py           # Orchestrates parse → lookup → fallback
+│   │   ├── openfoodfacts.py     # OpenFoodFacts API client
+│   │   ├── barcode.py           # Barcode decoding from photos
+│   │   ├── fatsecret_client.py  # FatSecret Platform API (OAuth1) diary reader
+│   │   └── fatsecret_mapper.py  # FatSecret entry → FoodEntry mapping
 │   ├── training/
 │   │   └── recommender.py   # Groq LLM: workout generation
 │   ├── telegram/

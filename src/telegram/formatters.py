@@ -1010,6 +1010,55 @@ def format_remaining_macros(
     return line
 
 
+def format_intraday_budget(
+    eaten: dict[str, Any],
+    total_burned: int | None,
+    deficit_pct: float = 0.30,
+) -> str | None:
+    """Format a raw intraday deficit control block for /hoje.
+
+    Shows three labelled raw values — no interpretation, no subtraction, no prose:
+      - Gasto: total calories burned by Garmin today
+      - Comido: food diary calories + eaten macros (P/G/HC)
+      - Orçamento: intake budget for the given deficit percentage
+
+    Args:
+        eaten: Nutrition totals dict (keys: calories, protein_g, fat_g, carbs_g).
+               Same shape as get_daily_nutrition() returns.
+        total_burned: Today's total Garmin calories burned (int or None).
+        deficit_pct: Target deficit fraction (default 0.30 = 30%).
+
+    Returns:
+        Markdown-formatted string with the raw values, or None if both
+        total_burned is absent/zero AND eaten has no calorie data.
+    """
+    eaten_cal = eaten.get("calories") or 0.0
+    has_burn = total_burned is not None and total_burned > 0
+    has_eaten = eaten_cal > 0
+
+    if not has_burn and not has_eaten:
+        return None
+
+    lines: list[str] = []
+
+    if has_burn:
+        lines.append(f"🔥 Gasto: {int(total_burned)} kcal")
+
+    protein = int(eaten.get("protein_g") or 0)
+    fat = int(eaten.get("fat_g") or 0)
+    carbs = int(eaten.get("carbs_g") or 0)
+    lines.append(
+        f"🍽️ Comido: {int(eaten_cal)} kcal | P: {protein}g | G: {fat}g | HC: {carbs}g"
+    )
+
+    if has_burn:
+        budget = round((1 - deficit_pct) * total_burned)
+        pct_label = int(round(deficit_pct * 100))
+        lines.append(f"🎯 Orçamento ({pct_label}% défice): {budget} kcal")
+
+    return "\n".join(lines)
+
+
 def format_workout_section(workout_text: str) -> str:
     """Wrap LLM workout text with a Telegram-ready header."""
     return f"💪 *Treino de Hoje*\n\n{workout_text}"
