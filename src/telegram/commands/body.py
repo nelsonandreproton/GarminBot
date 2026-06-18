@@ -121,9 +121,22 @@ class BodyMixin:
 
         # Show current weight status + last 20 records + trend chart
         from ..formatters import format_weight_status
-        yesterday = date.today() - timedelta(days=1)
+        today = date.today()
+
+        # Live-fetch today's weight from Garmin and persist it so /peso
+        # always shows today's measurement even before tomorrow's sync.
+        # Graceful: a Garmin failure must NOT break /peso — log a warning
+        # and continue with whatever is already in the DB.
+        if self._garmin_client is not None:
+            try:
+                weight_today = self._garmin_client.get_weight_data(today)
+                if weight_today is not None:
+                    self._repo.save_manual_weight(today, weight_today)
+            except Exception as exc:
+                logger.warning("Failed to live-fetch today's weight for /peso (DB data shown): %s", exc)
+
         current_weight, current_date = self._repo.get_latest_weight()
-        weight_stats = self._repo.get_weekly_weight_stats(yesterday)
+        weight_stats = self._repo.get_weekly_weight_stats(today)
         goals = self._repo.get_goals()
         recent_records = self._repo.get_recent_weight_records(20)
         text = format_weight_status(current_weight, current_date, weight_stats or None, goals, recent_records)
