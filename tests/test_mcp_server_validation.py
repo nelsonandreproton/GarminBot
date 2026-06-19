@@ -147,3 +147,55 @@ class TestActivitiesDateOrder:
         yesterday = (date.today() - timedelta(days=1)).isoformat()
         result = await server.call_tool("get_activities", {"start": yesterday, "end": today})
         assert result is not None
+
+
+# ---------------------------------------------------------------------------
+# get_metrics_range: date-range cap (_MAX_RANGE_DAYS = 3650)
+# ---------------------------------------------------------------------------
+
+class TestMetricsRangeCap:
+    @pytest.mark.asyncio
+    async def test_range_exceeding_max_days_raises(self, server):
+        # 2000-01-01 → 2020-01-01 is ~7305 days — well over the 3650-day cap.
+        with pytest.raises(ToolError, match="exceeds maximum"):
+            await server.call_tool(
+                "get_metrics_range",
+                {"start": "2000-01-01", "end": "2020-01-01"},
+            )
+
+    @pytest.mark.asyncio
+    async def test_range_exactly_at_max_days_accepted(self, server):
+        # Exactly 3650 days apart — should NOT raise (boundary is inclusive).
+        start = date(2014, 6, 19)
+        end = start + timedelta(days=3650)
+        result = await server.call_tool(
+            "get_metrics_range",
+            {"start": start.isoformat(), "end": end.isoformat()},
+        )
+        assert result is not None
+
+
+# ---------------------------------------------------------------------------
+# get_activities: date-range cap (_MAX_RANGE_DAYS = 3650)
+# ---------------------------------------------------------------------------
+
+class TestActivitiesRangeCap:
+    @pytest.mark.asyncio
+    async def test_range_exceeding_max_days_raises(self, server):
+        # 2000-01-01 → 2020-01-01 is ~7305 days — well over the 3650-day cap.
+        with pytest.raises(ToolError, match="exceeds maximum"):
+            await server.call_tool(
+                "get_activities",
+                {"start": "2000-01-01", "end": "2020-01-01"},
+            )
+
+    @pytest.mark.asyncio
+    async def test_range_exactly_at_max_days_accepted(self, server):
+        # Exactly 3650 days apart — should NOT raise (boundary is inclusive).
+        start = date(2014, 6, 19)
+        end = start + timedelta(days=3650)
+        result = await server.call_tool(
+            "get_activities",
+            {"start": start.isoformat(), "end": end.isoformat()},
+        )
+        assert result is not None
