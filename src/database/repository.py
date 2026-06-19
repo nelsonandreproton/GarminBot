@@ -18,8 +18,15 @@ logger = logging.getLogger(__name__)
 class Repository:
     """Handles all database operations using SQLAlchemy."""
 
-    def __init__(self, database_path: str) -> None:
-        url = f"sqlite:///{database_path}"
+    def __init__(self, database_path: str, read_only: bool = False) -> None:
+        if read_only:
+            # SQLite read-only URI — driver refuses all writes. DB file must already exist.
+            # Use as_posix() to convert Windows backslashes to forward slashes for the URI.
+            import pathlib
+            posix_path = pathlib.Path(database_path).as_posix()
+            url = f"sqlite:///file:{posix_path}?mode=ro&uri=true"
+        else:
+            url = f"sqlite:///{database_path}"
         self._engine = create_engine(url, connect_args={"check_same_thread": False})
         # expire_on_commit=False lets ORM objects be used after session.close()
         self._Session = sessionmaker(bind=self._engine, expire_on_commit=False)
@@ -53,7 +60,11 @@ class Repository:
                 "intensity_vigorous_min": "INTEGER",
                 "spo2_avg": "REAL",
             }
+            _allowed_col_types = {"INTEGER", "REAL", "TEXT", "BLOB"}
             for col, col_type in new_cols.items():
+                # Explicit raise (not assert) — assert is stripped under `python -O`.
+                if col_type not in _allowed_col_types:
+                    raise ValueError(f"Invalid migration column type: {col_type!r}")
                 if col not in existing_cols:
                     conn.execute(text(f"ALTER TABLE daily_metrics ADD COLUMN {col} {col_type}"))
                     logger.info("Migration: added column daily_metrics.%s", col)
@@ -844,6 +855,19 @@ class Repository:
                 session.query(GarminActivity)
                 .filter(GarminActivity.date == day)
                 .order_by(GarminActivity.garmin_activity_id)
+                .all()
+            )
+
+    def get_garmin_activities_range(self, start_date: date, end_date: date) -> list[GarminActivity]:
+        """Return all Garmin activities between start_date and end_date (inclusive).
+
+        Ordered by date ascending, then garmin_activity_id ascending.
+        """
+        with self._session() as session:
+            return (
+                session.query(GarminActivity)
+                .filter(GarminActivity.date >= start_date, GarminActivity.date <= end_date)
+                .order_by(GarminActivity.date, GarminActivity.garmin_activity_id)
                 .all()
             )
 
