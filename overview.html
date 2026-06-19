@@ -172,7 +172,34 @@
   </section>
 
   <section>
-    <h2>3. Scheduled jobs</h2>
+    <h2>3. MCP server — query your data from Claude</h2>
+    <div class="card">
+      <p style="color:var(--muted);font-size:0.88rem;margin-bottom:14px;">A read-only Model Context Protocol server exposes the database to Claude (Claude Code &amp; Desktop) — ask about averages, trends, deficit, and discuss strategy. 11 typed tools wrap the repository; the DB is opened <strong>read-only</strong> at the SQLite driver level so no tool can ever write.</p>
+      <div style="overflow-x:auto;"><div style="min-width:600px;">
+        <div class="flow">
+          <div class="flow-box purple"><strong>Claude</strong><small>Code / Desktop</small></div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box yellow"><strong>Caddy</strong><small>HTTPS + sslip.io</small></div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box orange"><strong>Bearer auth</strong><small>auth.py middleware</small></div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box accent"><strong>FastMCP</strong><small>11 tools</small></div>
+          <div class="flow-arrow">→</div>
+          <div class="flow-box cyan"><strong>SQLite</strong><small>read-only :ro</small></div>
+        </div>
+      </div></div>
+      <div class="param-grid" style="margin-top:16px;">
+        <div class="label">Endpoint</div><div class="val">garmin-mcp.&lt;ip&gt;.sslip.io/mcp</div>
+        <div class="label">Transport</div><div class="val">Streamable HTTP (remote) · stdio (local)</div>
+        <div class="label">Auth</div><div class="val">Authorization: Bearer (GARMIN_MCP_TOKEN)</div>
+        <div class="label">Tools</div><div class="val">daily_metrics · metrics_range · weekly/monthly_stats · weight_trend · nutrition · nutrition_trend · training_load · activities · goals · deficit</div>
+        <div class="label">Deploy</div><div class="val">garminbot-mcp container (bridge net, DB :ro)</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>4. Scheduled jobs</h2>
     <div class="grid-3">
       <div class="card">
         <div class="step-file">07:00 daily</div>
@@ -193,7 +220,7 @@
   </section>
 
   <section>
-    <h2>4. Key files</h2>
+    <h2>5. Key files</h2>
     <div class="card">
       <table class="file-table">
         <thead><tr><th>File</th><th>Role</th><th>Type</th></tr></thead>
@@ -216,7 +243,7 @@
   </section>
 
   <section>
-    <h2>5. Configuration</h2>
+    <h2>6. Configuration</h2>
     <div class="grid-2">
       <div class="card">
         <h3>Required .env variables</h3>
@@ -246,7 +273,7 @@
   </section>
 
   <section>
-    <h2>6. Docker setup</h2>
+    <h2>7. Docker setup</h2>
     <div class="card">
       <div class="param-grid">
         <span class="label">Image</span><span class="val">python:3.11-slim, non-root uid 1000</span>

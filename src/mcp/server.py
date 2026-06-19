@@ -59,10 +59,17 @@ def build_server(
 
     @mcp.tool()
     def get_daily_metrics(day: str | None = None) -> dict | None:
-        """Return Garmin health metrics for a single day (ISO date string, e.g. '2024-06-01').
+        """Return Garmin activity/health metrics for a single day (ISO date string, e.g. '2024-06-01').
 
-        Defaults to today. Returns None if no data exists for that day.
-        Includes sleep, steps, calories, heart rate, stress, body battery, SpO2, weight.
+        Defaults to today. Returns None if no Garmin data was synced for that day
+        (e.g. today before the morning sync — use the day's data once synced, or check
+        Telegram /hoje for a live snapshot).
+
+        Includes ONLY Garmin-sourced metrics: sleep, steps, calories BURNED
+        (active/resting/total), heart rate, stress, body battery, SpO2, weight.
+        This tool does NOT contain calories CONSUMED / food intake — for nutrition,
+        call get_nutrition (food totals + entries) or get_deficit (burned vs eaten).
+        Do not conclude that food was "not recorded" from this tool alone.
         """
         parsed = _parse_date(day, "day") if day else None
         return tools.get_daily_metrics(repo, parsed)
@@ -115,11 +122,15 @@ def build_server(
 
     @mcp.tool()
     def get_nutrition(day: str | None = None) -> dict:
-        """Return nutrition data for a day (ISO date, defaults to today).
+        """Return food intake / calories CONSUMED for a day (ISO date, defaults to today).
+
+        This is the tool for "calories consumed", "what I ate", and macros — sourced
+        from the food diary (FatSecret/manual), NOT from Garmin. Use this rather than
+        get_daily_metrics when asked about food/nutrition.
 
         Returns {"totals": {calories, protein_g, fat_g, carbs_g, fiber_g, entry_count},
                  "entries": [list of individual food entries]}.
-        Totals are zero-defaulted when no food was logged.
+        Totals are zero-defaulted ONLY when no food was logged (entry_count == 0).
         """
         parsed = _parse_date(day, "day") if day else None
         return tools.get_nutrition(repo, parsed)
