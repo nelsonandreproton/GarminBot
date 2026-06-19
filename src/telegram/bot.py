@@ -153,20 +153,8 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
             weekly_stats=weekly,
             alerts=alerts or None,
             show_sleep=show_sleep,
+            show_budget=show_budget,
         )
-        if show_budget:
-            from .formatters import format_intraday_budget
-            # Resolve total_burned: prefer total_calories, fall back to active+resting
-            total_burned = metrics.get("total_calories")
-            if not total_burned:
-                active = metrics.get("active_calories")
-                resting = metrics.get("resting_calories")
-                if active is not None and resting is not None:
-                    total_burned = active + resting
-            eaten = metrics.get("nutrition") or {}
-            budget_block = format_intraday_budget(eaten, total_burned=total_burned)
-            if budget_block:
-                text = text + "\n\n" + budget_block
         await self._send(text)
         logger.info("Daily summary sent")
 

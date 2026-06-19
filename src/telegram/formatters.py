@@ -56,6 +56,7 @@ def format_daily_summary(
     alerts: list[str] | None = None,
     nutrition: dict[str, Any] | None = None,
     show_sleep: bool = True,
+    show_budget: bool = False,
 ) -> str:
     """Format a daily health summary message for Telegram.
 
@@ -68,6 +69,10 @@ def format_daily_summary(
         nutrition: Optional daily nutrition totals (overrides metrics["nutrition"]).
         show_sleep: Whether to include the Sono section. Set to False for
                     today's live snapshot (/hoje), where sleep belongs to tomorrow.
+        show_budget: Append the 🎯 Orçamento line inside the Nutrição section.
+                     /hoje only. Requires food entries to be logged (gated by
+                     entry_count > 0). Default False so /ontem and the morning
+                     report are unaffected.
 
     Returns:
         Markdown-formatted string ready to send via Telegram.
@@ -166,6 +171,18 @@ def format_daily_summary(
             "resting_calories": metrics.get("resting_calories"),
             "total_calories": metrics.get("total_calories"),
         })]
+        if show_budget:
+            # Resolve total_burned the same way as calculate_deficit:
+            # prefer total_calories, fall back to active + resting (only if both present).
+            total_burned = metrics.get("total_calories")
+            if not total_burned:
+                active = metrics.get("active_calories")
+                resting = metrics.get("resting_calories")
+                if active is not None and resting is not None:
+                    total_burned = active + resting
+            budget_line = format_budget_line(total_burned)
+            if budget_line is not None:
+                lines.append(budget_line)
 
     water_ml = metrics.get("water_ml")
     if water_ml:
@@ -1010,53 +1027,18 @@ def format_remaining_macros(
     return line
 
 
-def format_intraday_budget(
-    eaten: dict[str, Any],
-    total_burned: int | None,
-    deficit_pct: float = 0.30,
-) -> str | None:
-    """Format a raw intraday deficit control block for /hoje.
+def format_budget_line(total_burned: int | None, deficit_pct: float = 0.30) -> str | None:
+    """Single intraday budget line for /hoje: the calorie intake budget for a
+    given deficit percentage. Returns None when burn is unknown/zero.
 
-    Shows three labelled raw values — no interpretation, no subtraction, no prose:
-      - Gasto: total calories burned by Garmin today
-      - Comido: food diary calories + eaten macros (P/G/HC)
-      - Orçamento: intake budget for the given deficit percentage
-
-    Args:
-        eaten: Nutrition totals dict (keys: calories, protein_g, fat_g, carbs_g).
-               Same shape as get_daily_nutrition() returns.
-        total_burned: Today's total Garmin calories burned (int or None).
-        deficit_pct: Target deficit fraction (default 0.30 = 30%).
-
-    Returns:
-        Markdown-formatted string with the raw values, or None if both
-        total_burned is absent/zero AND eaten has no calorie data.
+    Budget = round((1 - deficit_pct) * total_burned). round() not int() to avoid
+    float-truncation off-by-one (e.g. 0.70*2600 -> 1820, not 1819).
     """
-    eaten_cal = eaten.get("calories") or 0.0
-    has_burn = total_burned is not None and total_burned > 0
-    has_eaten = eaten_cal > 0
-
-    if not has_burn and not has_eaten:
+    if total_burned is None or total_burned <= 0:
         return None
-
-    lines: list[str] = []
-
-    if has_burn:
-        lines.append(f"🔥 Gasto: {int(total_burned)} kcal")
-
-    protein = int(eaten.get("protein_g") or 0)
-    fat = int(eaten.get("fat_g") or 0)
-    carbs = int(eaten.get("carbs_g") or 0)
-    lines.append(
-        f"🍽️ Comido: {int(eaten_cal)} kcal | P: {protein}g | G: {fat}g | HC: {carbs}g"
-    )
-
-    if has_burn:
-        budget = round((1 - deficit_pct) * total_burned)
-        pct_label = int(round(deficit_pct * 100))
-        lines.append(f"🎯 Orçamento ({pct_label}% défice): {budget} kcal")
-
-    return "\n".join(lines)
+    budget = round((1 - deficit_pct) * total_burned)
+    pct_label = int(round(deficit_pct * 100))
+    return f"🎯 Orçamento ({pct_label}% défice): {budget} kcal"
 
 
 def format_workout_section(workout_text: str) -> str:
