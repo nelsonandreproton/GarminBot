@@ -28,6 +28,33 @@ def _is_rate_limit(exc: BaseException) -> bool:
     return "429" in str(exc) or isinstance(exc, garminconnect.GarminConnectTooManyRequestsError)
 
 
+# Activity type keys treated as strength training — for these we fetch the
+# per-exercise sets to aggregate rounds/reps/weight.
+_STRENGTH_TYPE_KEYS = {"strength_training", "fitness_equipment"}
+
+# Type keys that are always indoor (e.g. treadmill). Used to label walks done
+# on a treadmill ("passadeira") differently from outdoor walks.
+_INDOOR_TYPE_KEYS = {
+    "treadmill_running",
+    "indoor_running",
+    "indoor_walking",
+    "indoor_cardio",
+    "indoor_cycling",
+}
+
+
+def _is_indoor_activity(type_key: str, item: dict) -> bool:
+    """Best-effort detection of whether an activity was done indoors.
+
+    Garmin does not expose a single reliable flag, so we combine known indoor
+    type keys with any explicit isIndoor signal present in the summary.
+    """
+    if type_key in _INDOOR_TYPE_KEYS:
+        return True
+    indoor_flag = item.get("isIndoor")
+    return bool(indoor_flag)
+
+
 @dataclass
 class SleepData:
     hours: float | None
@@ -377,7 +404,9 @@ class GarminClient:
         """Fetch recorded activities for a specific date from Garmin Connect.
 
         Returns a list of activity dicts with keys:
-            activity_id, name, type_key, duration_min, calories, distance_km.
+            activity_id, name, type_key, duration_min, calories, distance_km,
+            avg_hr, max_hr, is_indoor, and (for strength workouts) total_sets,
+            total_reps, min_weight_kg, max_weight_kg.
         Returns an empty list if no activities or on any error.
         """
         client = self._ensure_authenticated()
@@ -398,18 +427,71 @@ class GarminClient:
                 calories = int(calories) if calories is not None else None
                 distance_m = item.get("distance")
                 distance_km = round(distance_m / 1000, 2) if distance_m else None
-                result.append({
+                avg_hr = item.get("averageHR")
+                avg_hr = int(round(avg_hr)) if avg_hr is not None else None
+                max_hr = item.get("maxHR")
+                max_hr = int(round(max_hr)) if max_hr is not None else None
+
+                activity = {
                     "activity_id": int(activity_id),
                     "name": item.get("activityName") or type_key,
                     "type_key": type_key,
                     "duration_min": duration_min,
                     "calories": calories,
                     "distance_km": distance_km,
-                })
+                    "avg_hr": avg_hr,
+                    "max_hr": max_hr,
+                    "is_indoor": _is_indoor_activity(type_key, item),
+                }
+
+                # Strength workouts: fetch per-exercise sets to aggregate
+                # rounds (sets), reps and weight range. This is an extra API
+                # call per strength activity, so it is gated by type_key.
+                if type_key in _STRENGTH_TYPE_KEYS:
+                    activity.update(self._get_strength_detail(client, int(activity_id)))
+
+                result.append(activity)
             return result
         except Exception as exc:
             logger.debug("Could not fetch activities for %s: %s", date_str, exc)
             return []
+
+    def _get_strength_detail(self, client: Any, activity_id: int) -> dict:
+        """Aggregate sets/reps/weight from a strength activity's exercise sets.
+
+        Returns a dict with any of total_sets, total_reps, min_weight_kg,
+        max_weight_kg (only keys with data are included). Empty on any error.
+        """
+        try:
+            data = client.get_activity_exercise_sets(activity_id)
+        except Exception as exc:
+            logger.debug("Could not fetch exercise sets for %s: %s", activity_id, exc)
+            return {}
+
+        sets = (data or {}).get("exerciseSets") or []
+        total_sets = 0
+        total_reps = 0
+        weights_kg: list[float] = []
+        for s in sets:
+            if (s.get("setType") or "").upper() != "ACTIVE":
+                continue
+            total_sets += 1
+            reps = s.get("repetitionCount")
+            if reps:
+                total_reps += int(reps)
+            weight_g = s.get("weight")  # Garmin reports weight in grams
+            if weight_g:
+                weights_kg.append(weight_g / 1000.0)
+
+        detail: dict = {}
+        if total_sets:
+            detail["total_sets"] = total_sets
+        if total_reps:
+            detail["total_reps"] = total_reps
+        if weights_kg:
+            detail["min_weight_kg"] = round(min(weights_kg), 1)
+            detail["max_weight_kg"] = round(max(weights_kg), 1)
+        return detail
 
     def check_sleep_available(self, day: date) -> bool:
         """Check if completed sleep data exists for the given date.

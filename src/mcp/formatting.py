@@ -96,12 +96,20 @@ def activity_to_dict(row: GarminActivity) -> dict:
     """Convert a GarminActivity ORM row to a JSON-safe dict."""
     return {
         "garmin_activity_id": row.garmin_activity_id,
+        "activity_id": row.garmin_activity_id,
         "date": row.date.isoformat() if row.date is not None else None,
         "name": row.name,
         "type_key": row.type_key,
         "duration_min": row.duration_min,
         "calories": row.calories,
         "distance_km": row.distance_km,
+        "avg_hr": getattr(row, "avg_hr", None),
+        "max_hr": getattr(row, "max_hr", None),
+        "is_indoor": getattr(row, "is_indoor", None),
+        "total_sets": getattr(row, "total_sets", None),
+        "total_reps": getattr(row, "total_reps", None),
+        "min_weight_kg": getattr(row, "min_weight_kg", None),
+        "max_weight_kg": getattr(row, "max_weight_kg", None),
         "synced_at": row.synced_at.isoformat() if row.synced_at is not None else None,
     }
 

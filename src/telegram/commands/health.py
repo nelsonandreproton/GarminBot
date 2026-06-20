@@ -40,6 +40,15 @@ class HealthMixin:
         except Exception as exc:
             logger.warning("Failed to fetch today's health data: %s", exc)
             health = {}
+        # Recorded activities for today (live). A failure here must not break the
+        # snapshot — we log a warning and continue without the activities section.
+        activities: list[dict] = []
+        try:
+            activities = self._garmin_client.get_activities_for_date(today)
+            if activities:
+                self._repo.save_garmin_activities(today, activities)
+        except Exception as exc:
+            logger.warning("Failed to fetch today's activities: %s", exc)
         metrics: dict[str, Any] = {"date": today}
         if activity:
             metrics["steps"] = activity.steps
@@ -66,7 +75,7 @@ class HealthMixin:
                 "resting_calories": metrics.get("resting_calories"),
                 "total_calories": metrics.get("total_calories"),
             }
-        await self.send_daily_summary(metrics, show_sleep=False, show_budget=True)
+        await self.send_daily_summary(metrics, show_sleep=False, show_budget=True, activities=activities)
 
     @safe_command
     async def _cmd_ontem(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -199,7 +208,9 @@ class HealthMixin:
                 "resting_calories": row.resting_calories,
                 "total_calories": row.total_calories,
             }
-        await self.send_daily_summary(metrics)
+        from ...mcp.formatting import activity_list_to_dicts
+        activities = activity_list_to_dicts(self._repo.get_garmin_activities_for_date(yesterday))
+        await self.send_daily_summary(metrics, activities=activities)
         self._repo.log_report_sent()
         logger.info("Daily report sent for %s (via /sync)", yesterday)
 
