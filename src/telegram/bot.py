@@ -125,6 +125,7 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
         metrics: dict[str, Any],
         show_sleep: bool = True,
         show_budget: bool = False,
+        activities: list[dict] | None = None,
     ) -> None:
         """Fetch weekly context, generate alerts, and send the daily summary message.
 
@@ -154,6 +155,7 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
             alerts=alerts or None,
             show_sleep=show_sleep,
             show_budget=show_budget,
+            activities=activities,
         )
         await self._send(text)
         logger.info("Daily summary sent")

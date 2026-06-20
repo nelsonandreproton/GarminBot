@@ -57,6 +57,7 @@ def format_daily_summary(
     nutrition: dict[str, Any] | None = None,
     show_sleep: bool = True,
     show_budget: bool = False,
+    activities: list[dict] | None = None,
 ) -> str:
     """Format a daily health summary message for Telegram.
 
@@ -131,6 +132,10 @@ def format_daily_summary(
         vig_str = f"{int_vig}min vig." if int_vig is not None else "—"
         activity_lines.append(f"• Intensidade: {mod_str} + {vig_str}")
     lines += activity_lines
+
+    act_section = format_activities_section(activities)
+    if act_section:
+        lines += ["", act_section]
 
     rhr = metrics.get("resting_heart_rate")
     avg_stress = metrics.get("avg_stress")
@@ -1068,6 +1073,92 @@ _ACTIVITY_LABELS: dict[str, tuple[str, str]] = {
     "stair_climbing": ("Escadas", "🪜"),
     "open_water_swimming": ("Natação em Águas Abertas", "🌊"),
 }
+
+
+# Activity type keys treated as strength training (rounds/reps/weight shown).
+_STRENGTH_TYPE_KEYS = {"strength_training", "fitness_equipment"}
+# Walking-family type keys that become "Passadeira" when done indoors.
+_WALKING_TYPE_KEYS = {"walking", "hiking"}
+
+
+def _activity_label(act: dict) -> tuple[str, str]:
+    """Return (label, emoji) for an activity, distinguishing treadmill walks."""
+    type_key = act.get("type_key", "unknown")
+    if act.get("is_indoor") and type_key in _WALKING_TYPE_KEYS:
+        return ("Passadeira", "🏃")
+    return _ACTIVITY_LABELS.get(type_key, (act.get("name") or type_key, "🏅"))
+
+
+def _fmt_kg(value: float) -> str:
+    """Format a weight dropping a trailing .0 (e.g. 20.0 -> '20', 22.5 -> '22.5')."""
+    return f"{value:g}"
+
+
+def _bpm_part(act: dict) -> str | None:
+    """Return a heart-rate string like '💓 128/165 bpm' (avg/max) or None."""
+    avg = act.get("avg_hr")
+    mx = act.get("max_hr")
+    if avg is not None and mx is not None:
+        return f"💓 {avg}/{mx} bpm"
+    if avg is not None:
+        return f"💓 {avg} bpm"
+    if mx is not None:
+        return f"💓 máx {mx} bpm"
+    return None
+
+
+def format_activities_section(activities: list[dict]) -> str | None:
+    """Format the recorded-activities block for the daily summary.
+
+    Walking/running show distance, time, calories and bpm. Strength workouts
+    show time, calories, bpm and a second line with rounds, reps and weight
+    range. Returns None when there are no activities.
+    """
+    if not activities:
+        return None
+
+    lines = ["🏋️ *Atividades registadas*"]
+    for act in activities:
+        label, emoji = _activity_label(act)
+        type_key = act.get("type_key", "unknown")
+        parts: list[str] = []
+
+        if type_key in _STRENGTH_TYPE_KEYS:
+            if act.get("duration_min") is not None:
+                parts.append(f"{act['duration_min']} min")
+            if act.get("calories") is not None:
+                parts.append(f"{act['calories']} kcal")
+            bpm = _bpm_part(act)
+            if bpm:
+                parts.append(bpm)
+            lines.append(f"{emoji} *{label}* — " + (" | ".join(parts) if parts else "—"))
+            sub: list[str] = []
+            if act.get("total_sets") is not None:
+                sub.append(f"Rondas: {act['total_sets']}")
+            if act.get("total_reps") is not None:
+                sub.append(f"Reps: {act['total_reps']}")
+            mn = act.get("min_weight_kg")
+            mx = act.get("max_weight_kg")
+            if mn is not None and mx is not None:
+                if mn == mx:
+                    sub.append(f"Carga: {_fmt_kg(mn)} kg")
+                else:
+                    sub.append(f"Carga: {_fmt_kg(mn)}–{_fmt_kg(mx)} kg")
+            if sub:
+                lines.append("   ↳ " + " | ".join(sub))
+        else:
+            if act.get("distance_km") is not None:
+                parts.append(f"{act['distance_km']} km")
+            if act.get("duration_min") is not None:
+                parts.append(f"{act['duration_min']} min")
+            if act.get("calories") is not None:
+                parts.append(f"{act['calories']} kcal")
+            bpm = _bpm_part(act)
+            if bpm:
+                parts.append(bpm)
+            lines.append(f"{emoji} *{label}* — " + (" | ".join(parts) if parts else "—"))
+
+    return "\n".join(lines)
 
 
 def format_activity_sync(activities: list[dict], day_label: str) -> str:
