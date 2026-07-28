@@ -93,6 +93,23 @@ class Repository:
             if "garmin_activities" not in table_names:
                 GarminActivity.__table__.create(self._engine)
                 logger.info("Migration: created table garmin_activities")
+            else:
+                # Add per-activity detail columns to existing tables.
+                ga_cols = {c["name"] for c in inspector.get_columns("garmin_activities")}
+                ga_new_cols = {
+                    "avg_hr": "INTEGER",
+                    "max_hr": "INTEGER",
+                    "is_indoor": "BOOLEAN",
+                    "total_sets": "INTEGER",
+                    "total_reps": "INTEGER",
+                    "min_weight_kg": "REAL",
+                    "max_weight_kg": "REAL",
+                }
+                for col, col_type in ga_new_cols.items():
+                    if col not in ga_cols:
+                        conn.execute(text(f"ALTER TABLE garmin_activities ADD COLUMN {col} {col_type}"))
+                        logger.info("Migration: added column garmin_activities.%s", col)
+                conn.commit()
             if "food_cache" not in table_names:
                 FoodCache.__table__.create(self._engine)
                 logger.info("Migration: created table food_cache")
@@ -823,6 +840,13 @@ class Repository:
         duration_min: int | None,
         calories: int | None,
         distance_km: float | None,
+        avg_hr: int | None = None,
+        max_hr: int | None = None,
+        is_indoor: bool | None = None,
+        total_sets: int | None = None,
+        total_reps: int | None = None,
+        min_weight_kg: float | None = None,
+        max_weight_kg: float | None = None,
     ) -> None:
         """Insert or update a Garmin activity (keyed by activity_id — no duplicates)."""
         with self._session() as session:
@@ -835,6 +859,13 @@ class Repository:
                 existing.duration_min = duration_min
                 existing.calories = calories
                 existing.distance_km = distance_km
+                existing.avg_hr = avg_hr
+                existing.max_hr = max_hr
+                existing.is_indoor = is_indoor
+                existing.total_sets = total_sets
+                existing.total_reps = total_reps
+                existing.min_weight_kg = min_weight_kg
+                existing.max_weight_kg = max_weight_kg
                 existing.synced_at = datetime.now(UTC)
             else:
                 session.add(GarminActivity(
@@ -845,8 +876,35 @@ class Repository:
                     duration_min=duration_min,
                     calories=calories,
                     distance_km=distance_km,
+                    avg_hr=avg_hr,
+                    max_hr=max_hr,
+                    is_indoor=is_indoor,
+                    total_sets=total_sets,
+                    total_reps=total_reps,
+                    min_weight_kg=min_weight_kg,
+                    max_weight_kg=max_weight_kg,
                 ))
         logger.debug("Garmin activity %d upserted for %s", activity_id, day)
+
+    def save_garmin_activities(self, day: date, activities: list[dict]) -> None:
+        """Upsert a list of activity dicts (as returned by GarminClient) for a day."""
+        for act in activities:
+            self.upsert_garmin_activity(
+                activity_id=act["activity_id"],
+                day=day,
+                name=act["name"],
+                type_key=act.get("type_key"),
+                duration_min=act.get("duration_min"),
+                calories=act.get("calories"),
+                distance_km=act.get("distance_km"),
+                avg_hr=act.get("avg_hr"),
+                max_hr=act.get("max_hr"),
+                is_indoor=act.get("is_indoor"),
+                total_sets=act.get("total_sets"),
+                total_reps=act.get("total_reps"),
+                min_weight_kg=act.get("min_weight_kg"),
+                max_weight_kg=act.get("max_weight_kg"),
+            )
 
     def get_garmin_activities_for_date(self, day: date) -> list[GarminActivity]:
         """Return all Garmin activities for a specific date."""

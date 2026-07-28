@@ -59,6 +59,17 @@ def make_sync_job(garmin: GarminClient, repo: Repository, fatsecret=None) -> cal
             repo.log_sync(sync_status)
             logger.info("Sync: complete for %s (status=%s)", summary.date, sync_status)
 
+            # Recorded activities (walks, strength, etc.) — persisted so the
+            # daily report can show the activities section. A failure here must
+            # not roll back the already-saved daily metrics.
+            try:
+                activities = garmin.get_activities_for_date(summary.date)
+                if activities:
+                    repo.save_garmin_activities(summary.date, activities)
+                    logger.info("Sync: saved %d activities for %s", len(activities), summary.date)
+            except Exception as exc:
+                logger.warning("Sync: could not save activities for %s: %s", summary.date, exc)
+
             if _HEARTBEAT_AVAILABLE:
                 hb_status = "ok" if sync_status == "success" else "degraded"
                 _hb_beat(

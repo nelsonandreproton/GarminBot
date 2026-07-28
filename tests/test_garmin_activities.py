@@ -10,7 +10,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from src.database.repository import Repository
-from src.telegram.formatters import format_activity_sync
+from src.telegram.formatters import (
+    format_activities_section,
+    format_activity_sync,
+    format_daily_summary,
+)
 
 
 # ------------------------------------------------------------------ #
@@ -263,6 +267,95 @@ def test_get_activities_for_date_skips_entries_without_id():
     assert result[0]["activity_id"] == 1001
 
 
+def test_get_activities_for_date_parses_heart_rate():
+    from src.garmin.client import GarminClient
+    client = GarminClient("test@example.com", "password")
+    mock_garmin = MagicMock()
+    mock_garmin.get_activities_by_date.return_value = [
+        {"activityId": 1, "activityName": "Walk", "activityType": {"typeKey": "walking"},
+         "duration": 1800, "calories": 150, "distance": 2500.0,
+         "averageHR": 110.4, "maxHR": 138.9},
+    ]
+    client._client = mock_garmin
+
+    result = client.get_activities_for_date(date(2026, 2, 25))
+    assert result[0]["avg_hr"] == 110
+    assert result[0]["max_hr"] == 139
+    assert result[0]["is_indoor"] is False
+
+
+def test_get_activities_for_date_detects_indoor():
+    from src.garmin.client import GarminClient
+    client = GarminClient("test@example.com", "password")
+    mock_garmin = MagicMock()
+    mock_garmin.get_activities_by_date.return_value = [
+        {"activityId": 1, "activityName": "Treadmill", "activityType": {"typeKey": "walking"},
+         "duration": 1800, "calories": 150, "distance": 2500.0, "isIndoor": True},
+    ]
+    client._client = mock_garmin
+
+    result = client.get_activities_for_date(date(2026, 2, 25))
+    assert result[0]["is_indoor"] is True
+
+
+def test_get_activities_for_date_aggregates_strength_sets():
+    from src.garmin.client import GarminClient
+    client = GarminClient("test@example.com", "password")
+    mock_garmin = MagicMock()
+    mock_garmin.get_activities_by_date.return_value = [
+        {"activityId": 7, "activityName": "Gym", "activityType": {"typeKey": "strength_training"},
+         "duration": 2700, "calories": 320, "distance": None, "averageHR": 120, "maxHR": 160},
+    ]
+    mock_garmin.get_activity_exercise_sets.return_value = {
+        "exerciseSets": [
+            {"setType": "ACTIVE", "repetitionCount": 10, "weight": 20000},  # 20 kg
+            {"setType": "REST", "repetitionCount": None, "weight": None},
+            {"setType": "ACTIVE", "repetitionCount": 8, "weight": 80000},   # 80 kg
+        ]
+    }
+    client._client = mock_garmin
+
+    result = client.get_activities_for_date(date(2026, 2, 25))
+    act = result[0]
+    assert act["total_sets"] == 2
+    assert act["total_reps"] == 18
+    assert act["min_weight_kg"] == 20.0
+    assert act["max_weight_kg"] == 80.0
+    mock_garmin.get_activity_exercise_sets.assert_called_once_with(7)
+
+
+def test_get_activities_for_date_strength_sets_error_is_safe():
+    from src.garmin.client import GarminClient
+    client = GarminClient("test@example.com", "password")
+    mock_garmin = MagicMock()
+    mock_garmin.get_activities_by_date.return_value = [
+        {"activityId": 7, "activityName": "Gym", "activityType": {"typeKey": "strength_training"},
+         "duration": 2700, "calories": 320, "distance": None},
+    ]
+    mock_garmin.get_activity_exercise_sets.side_effect = Exception("boom")
+    client._client = mock_garmin
+
+    result = client.get_activities_for_date(date(2026, 2, 25))
+    # On error the strength detail is simply omitted — the activity still parses.
+    assert result[0]["activity_id"] == 7
+    assert "total_sets" not in result[0]
+    assert "min_weight_kg" not in result[0]
+
+
+def test_get_activities_for_date_no_sets_call_for_non_strength():
+    from src.garmin.client import GarminClient
+    client = GarminClient("test@example.com", "password")
+    mock_garmin = MagicMock()
+    mock_garmin.get_activities_by_date.return_value = [
+        {"activityId": 1, "activityName": "Run", "activityType": {"typeKey": "running"},
+         "duration": 1800, "calories": 200, "distance": 5000.0},
+    ]
+    client._client = mock_garmin
+
+    client.get_activities_for_date(date(2026, 2, 25))
+    mock_garmin.get_activity_exercise_sets.assert_not_called()
+
+
 # ------------------------------------------------------------------ #
 # Formatter: format_activity_sync                                     #
 # ------------------------------------------------------------------ #
@@ -313,6 +406,102 @@ def test_format_activity_sync_multiple_activities():
 def test_format_activity_sync_shows_day_label():
     text = format_activity_sync([], "26/02/2026 (hoje)")
     assert "26/02/2026" in text
+
+
+# ------------------------------------------------------------------ #
+# Formatter: format_activities_section (daily summary block)          #
+# ------------------------------------------------------------------ #
+
+def test_activities_section_none_when_empty():
+    assert format_activities_section([]) is None
+    assert format_activities_section(None) is None
+
+
+def test_activities_section_walk_shows_distance_time_cals_bpm():
+    acts = [{"type_key": "walking", "name": "Caminhada", "distance_km": 3.5,
+             "duration_min": 40, "calories": 250, "avg_hr": 110, "max_hr": 140}]
+    text = format_activities_section(acts)
+    assert "Caminhada" in text
+    assert "3.5 km" in text
+    assert "40 min" in text
+    assert "250 kcal" in text
+    assert "110/140 bpm" in text
+
+
+def test_activities_section_treadmill_labelled_passadeira():
+    acts = [{"type_key": "walking", "name": "Walk", "is_indoor": True,
+             "distance_km": 2.0, "duration_min": 25, "calories": 180, "avg_hr": 120}]
+    text = format_activities_section(acts)
+    assert "Passadeira" in text
+    assert "Caminhada" not in text
+
+
+def test_activities_section_strength_shows_rounds_reps_weight():
+    acts = [{"type_key": "strength_training", "name": "Gym", "duration_min": 45,
+             "calories": 320, "avg_hr": 128, "max_hr": 165,
+             "total_sets": 18, "total_reps": 210,
+             "min_weight_kg": 20.0, "max_weight_kg": 80.0}]
+    text = format_activities_section(acts)
+    assert "Musculação" in text
+    assert "45 min" in text
+    assert "320 kcal" in text
+    assert "128/165 bpm" in text
+    assert "Rondas: 18" in text
+    assert "Reps: 210" in text
+    assert "Carga: 20–80 kg" in text
+
+
+def test_activities_section_strength_single_weight():
+    acts = [{"type_key": "strength_training", "name": "Gym", "duration_min": 30,
+             "calories": 200, "total_sets": 5, "total_reps": 50,
+             "min_weight_kg": 22.5, "max_weight_kg": 22.5}]
+    text = format_activities_section(acts)
+    assert "Carga: 22.5 kg" in text
+
+
+def test_daily_summary_includes_activities_section():
+    metrics = {"date": date(2026, 2, 25), "steps": 5000,
+               "active_calories": 400, "resting_calories": 1500}
+    acts = [{"type_key": "running", "name": "Run", "distance_km": 5.0,
+             "duration_min": 30, "calories": 280, "avg_hr": 150, "max_hr": 175}]
+    text = format_daily_summary(metrics, activities=acts)
+    assert "🏋️ *Atividades registadas*" in text
+    assert "Corrida" in text
+    assert "5.0 km" in text
+
+
+def test_daily_summary_without_activities_has_no_section():
+    metrics = {"date": date(2026, 2, 25), "steps": 5000,
+               "active_calories": 400, "resting_calories": 1500}
+    text = format_daily_summary(metrics)
+    assert "Atividades registadas" not in text
+
+
+# ------------------------------------------------------------------ #
+# Repository: save/round-trip new activity fields                     #
+# ------------------------------------------------------------------ #
+
+def test_save_garmin_activities_round_trips_new_fields(repo):
+    from src.mcp.formatting import activity_list_to_dicts
+    today = date.today()
+    acts = [{
+        "activity_id": 42, "name": "Gym", "type_key": "strength_training",
+        "duration_min": 45, "calories": 320, "distance_km": None,
+        "avg_hr": 128, "max_hr": 165, "is_indoor": True,
+        "total_sets": 18, "total_reps": 210,
+        "min_weight_kg": 20.0, "max_weight_kg": 80.0,
+    }]
+    repo.save_garmin_activities(today, acts)
+    rows = activity_list_to_dicts(repo.get_garmin_activities_for_date(today))
+    assert len(rows) == 1
+    r = rows[0]
+    assert r["avg_hr"] == 128
+    assert r["max_hr"] == 165
+    assert r["is_indoor"] is True
+    assert r["total_sets"] == 18
+    assert r["total_reps"] == 210
+    assert r["min_weight_kg"] == 20.0
+    assert r["max_weight_kg"] == 80.0
 
 
 # ------------------------------------------------------------------ #

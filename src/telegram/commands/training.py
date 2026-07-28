@@ -225,16 +225,7 @@ class TrainingMixin:
         activities = self._garmin_client.get_activities_for_date(target_day)
 
         if activities:
-            for act in activities:
-                self._repo.upsert_garmin_activity(
-                    activity_id=act["activity_id"],
-                    day=target_day,
-                    name=act["name"],
-                    type_key=act.get("type_key"),
-                    duration_min=act.get("duration_min"),
-                    calories=act.get("calories"),
-                    distance_km=act.get("distance_km"),
-                )
+            self._repo.save_garmin_activities(target_day, activities)
 
         text = format_activity_sync(activities, day_label)
         await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN)

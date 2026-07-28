@@ -157,6 +157,13 @@ class GarminActivity(Base):
     duration_min = Column(Integer, nullable=True)
     calories = Column(Integer, nullable=True)
     distance_km = Column(Float, nullable=True)
+    avg_hr = Column(Integer, nullable=True)
+    max_hr = Column(Integer, nullable=True)
+    is_indoor = Column(Boolean, nullable=True)
+    total_sets = Column(Integer, nullable=True)
+    total_reps = Column(Integer, nullable=True)
+    min_weight_kg = Column(Float, nullable=True)
+    max_weight_kg = Column(Float, nullable=True)
     synced_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
     def __repr__(self) -> str:
