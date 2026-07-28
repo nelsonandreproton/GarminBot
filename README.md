@@ -10,7 +10,7 @@ A Python bot that syncs Garmin Connect data daily and sends formatted health sum
 - **Monthly stats** — via `/mes` command
 - **Nutrition tracking (FatSecret)** — log food in the [FatSecret](https://www.fatsecret.com/) app; the bot reads your diary (calories + macros) via the FatSecret Platform API and folds it into the daily summary
 - **Manual nutrition fallback** — `/comi` still logs food via text or barcode photo with Groq LLM parsing (optional, free tier) when you forget to log in the app
-- **Intraday deficit control** — `/hoje` shows current Garmin burn, calories eaten (+ macros), current deficit %, and the intake budget for a 30% deficit, so you can decide what to eat for the rest of the day
+- **Intraday deficit control** — `/hoje` shows current Garmin burn, calories eaten (+ macros), current deficit %, and how many kcal you have left (or exceeded) to end the day at a 30% deficit, so you can decide what to eat for the rest of the day
 - **Macro goals** — set daily targets for calories, protein, fat, and carbs; see remaining macros after each meal
 - **Nutrition recommendations** — LLM-generated daily advice based on yesterday's intake vs goals and Garmin data
 - **Workout recommendations** — daily gym workout based on sleep, nutrition, equipment, and movement patterns (Squat/Push/Pull/Hinge/Carry)
@@ -128,7 +128,7 @@ All settings live in `.env`. See `.env.example` for the full list with comments.
 
 | Command | Description |
 |---|---|
-| `/hoje` | Today's live metrics + intraday deficit budget (Garmin burn, eaten calories/macros, current deficit %, 30%-deficit intake budget) |
+| `/hoje` | Today's live metrics + intraday deficit budget (Garmin burn, eaten calories/macros, current deficit %, kcal remaining/exceeded vs 30%-deficit target) |
 | `/ontem` | Yesterday's full summary with weekly comparison |
 | `/semana` | Last 7 days averages |
 | `/mes` | Last 30 days averages |

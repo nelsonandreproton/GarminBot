@@ -69,10 +69,10 @@ def format_daily_summary(
         nutrition: Optional daily nutrition totals (overrides metrics["nutrition"]).
         show_sleep: Whether to include the Sono section. Set to False for
                     today's live snapshot (/hoje), where sleep belongs to tomorrow.
-        show_budget: Append the 🎯 Orçamento line inside the Nutrição section.
-                     /hoje only. Requires food entries to be logged (gated by
-                     entry_count > 0). Default False so /ontem and the morning
-                     report are unaffected.
+        show_budget: Append the 🎯 Disponível/Excedido line inside the Nutrição
+                     section. /hoje only. Requires food entries to be logged
+                     (gated by entry_count > 0). Default False so /ontem and
+                     the morning report are unaffected.
 
     Returns:
         Markdown-formatted string ready to send via Telegram.
@@ -180,7 +180,8 @@ def format_daily_summary(
                 resting = metrics.get("resting_calories")
                 if active is not None and resting is not None:
                     total_burned = active + resting
-            budget_line = format_budget_line(total_burned)
+            eaten_cal = nutrition.get("calories") or 0.0
+            budget_line = format_budget_line(total_burned, eaten_cal)
             if budget_line is not None:
                 lines.append(budget_line)
 
@@ -1027,18 +1028,29 @@ def format_remaining_macros(
     return line
 
 
-def format_budget_line(total_burned: int | None, deficit_pct: float = 0.30) -> str | None:
-    """Single intraday budget line for /hoje: the calorie intake budget for a
-    given deficit percentage. Returns None when burn is unknown/zero.
+def format_budget_line(
+    total_burned: int | None,
+    eaten_cal: float | None,
+    deficit_pct: float = 0.30,
+) -> str | None:
+    """Single intraday budget line for /hoje: how many kcal are still available
+    (or already exceeded) to end the day at the target deficit percentage.
 
     Budget = round((1 - deficit_pct) * total_burned). round() not int() to avoid
     float-truncation off-by-one (e.g. 0.70*2600 -> 1820, not 1819).
+    Remaining = budget - eaten_cal. Positive = still have margin, negative = exceeded.
+    Returns None when burn or intake is unknown/zero-or-negative burn.
     """
     if total_burned is None or total_burned <= 0:
         return None
+    if eaten_cal is None:
+        return None
     budget = round((1 - deficit_pct) * total_burned)
-    pct_label = int(round(deficit_pct * 100))
-    return f"🎯 Orçamento ({pct_label}% défice): {budget} kcal"
+    remaining = round(budget - eaten_cal)
+    formatted = f"{abs(remaining):,}".replace(",", ".")
+    if remaining >= 0:
+        return f"🎯 Disponível: +{formatted} kcal"
+    return f"🎯 Excedido: -{formatted} kcal"
 
 
 def format_workout_section(workout_text: str) -> str:

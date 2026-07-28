@@ -283,12 +283,12 @@ class TestShowBudgetFlag:
 class TestSendDailySummaryBudgetBlock:
     @pytest.mark.asyncio
     async def test_budget_block_in_hoje_output(self, repo, garmin_client):
-        """The Orçamento line must appear inside the Nutrição section of /hoje output.
-        Gasto and Comido lines must NOT appear (they were removed).
+        """The Disponível/Excedido line must appear inside the Nutrição section of /hoje
+        output. Gasto and Comido lines must NOT appear (they were removed).
         """
         today = date.today()
         # Insert a food entry so get_daily_nutrition returns entry_count >= 1 and
-        # the Nutrição section is rendered (required for the Orçamento line to appear).
+        # the Nutrição section is rendered (required for the budget line to appear).
         repo.save_food_entries(today, [{
             "name": "Teste",
             "calories": 237.0,
@@ -310,14 +310,15 @@ class TestSendDailySummaryBudgetBlock:
             await bot._cmd_hoje(update, _make_context())
 
         all_text = "\n".join(sent_texts)
-        # Orçamento line must appear (inside Nutrição section)
-        assert "Orçamento" in all_text
+        # Disponível or Excedido line must appear (inside Nutrição section)
+        assert "Disponível" in all_text or "Excedido" in all_text
         # Gasto and Comido lines must be gone
         assert "Gasto" not in all_text
         assert "Comido" not in all_text
-        # Orçamento must appear after Défice line when both are present
+        # Budget line must appear after Défice line when both are present
         if "Défice" in all_text:
-            assert all_text.index("Défice") < all_text.index("Orçamento")
+            budget_idx = all_text.index("Disponível") if "Disponível" in all_text else all_text.index("Excedido")
+            assert all_text.index("Défice") < budget_idx
 
     @pytest.mark.asyncio
     async def test_budget_block_absent_in_scheduled_morning_report(self, repo):
