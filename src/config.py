@@ -44,6 +44,7 @@ class Config:
     newsletter_enabled: bool
     fatsecret_consumer_key: str | None
     fatsecret_consumer_secret: str | None
+    outsystems_api_base_url: str | None
 
     # Derived fields
     sync_hour: int = field(init=False)
@@ -140,6 +141,9 @@ def load_config() -> Config:
     fatsecret_consumer_key = os.getenv("FATSECRET_CONSUMER_KEY") or None
     fatsecret_consumer_secret = os.getenv("FATSECRET_CONSUMER_SECRET") or None
 
+    # OUTSYSTEMS: optional — daily-record sync to Nelson's OutSystems app disabled if absent
+    outsystems_api_base_url = os.getenv("OUTSYSTEMS_API_BASE_URL") or None
+
     return Config(
         garmin_email=required["GARMIN_EMAIL"],  # type: ignore[arg-type]
         garmin_password=required["GARMIN_PASSWORD"],  # type: ignore[arg-type]
@@ -168,4 +172,5 @@ def load_config() -> Config:
         newsletter_enabled=os.getenv("NEWSLETTER_ENABLED", "true").strip().lower() != "false",
         fatsecret_consumer_key=fatsecret_consumer_key,
         fatsecret_consumer_secret=fatsecret_consumer_secret,
+        outsystems_api_base_url=outsystems_api_base_url,
     )

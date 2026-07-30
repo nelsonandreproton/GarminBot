@@ -33,7 +33,7 @@ def _run_async(coro) -> None:
         loop.close()
 
 
-def make_sync_job(garmin: GarminClient, repo: Repository, fatsecret=None) -> callable:
+def make_sync_job(garmin: GarminClient, repo: Repository, fatsecret=None, outsystems=None) -> callable:
     """Return a callable that syncs yesterday's Garmin data to the database.
 
     Args:
@@ -44,11 +44,20 @@ def make_sync_job(garmin: GarminClient, repo: Repository, fatsecret=None) -> cal
             in the FatSecret block is logged as a warning and never re-raised —
             Garmin data already committed must not be rolled back by a nutrition
             API failure.
+        outsystems: Optional OutSystemsClient. When provided, creates a daily
+            record in the external OutSystems app for the same day being synced,
+            if one doesn't already exist. CreateRecord has no update endpoint, so
+            the record is skipped (not created) whenever existence can't be
+            verified or any core Garmin field is missing — a permanent duplicate
+            or a false zero is worse than skipping for a day.
 
     Returns:
-        Callable used by /sync command.
+        Callable used by /sync command. Returns a dict with a "warnings" list
+        (empty on full success) so the caller (e.g. /sync's Telegram handler)
+        can surface non-fatal integration failures to the user.
     """
-    def sync_yesterday_data_job() -> None:
+    def sync_yesterday_data_job() -> dict:
+        warnings: list[str] = []
         logger.info("Sync: starting Garmin sync")
         try:
             summary = garmin.get_yesterday_summary()
@@ -92,24 +101,77 @@ def make_sync_job(garmin: GarminClient, repo: Repository, fatsecret=None) -> cal
 
         # FatSecret nutrition sync — separate try/except so a failure here
         # never affects the already-committed Garmin data or re-raises.
+        # fatsecret_ok tracks whether nutrition totals for the day are trustworthy;
+        # OutSystems record creation is gated on this below (a false zero is worse
+        # than skipping, since CreateRecord has no update endpoint).
+        fatsecret_ok = True
         if fatsecret is not None:
             try:
                 raw = fatsecret.get_food_entries(summary.date)
                 mapped = map_fatsecret_entries(raw)
-                result = repo.upsert_fatsecret_entries(summary.date, mapped)
+                fs_result = repo.upsert_fatsecret_entries(summary.date, mapped)
                 logger.info(
                     "FatSecret: %d inserted, %d updated for %s",
-                    result["inserted"],
-                    result["updated"],
+                    fs_result["inserted"],
+                    fs_result["updated"],
                     summary.date,
                 )
             except Exception as exc:
+                fatsecret_ok = False
                 from ..nutrition.fatsecret_client import _redact
                 logger.warning(
                     "FatSecret sync failed for %s (Garmin data unaffected): %s",
                     summary.date,
                     _redact(exc),
                 )
+
+        # OutSystems daily-record sync — separate try/except so a failure here
+        # never affects the already-committed Garmin/FatSecret data. CreateRecord
+        # has no update endpoint: fail closed (skip creating) whenever existence
+        # can't be verified, a core Garmin field is missing, or nutrition totals
+        # for the day are untrustworthy (FatSecret failed), rather than risk a
+        # permanent duplicate or a false zero in an external system.
+        if outsystems is not None:
+            try:
+                if outsystems.record_exists(summary.date):
+                    logger.info("OutSystems: record already exists for %s, skipping", summary.date)
+                else:
+                    active = metrics.get("active_calories")
+                    resting = metrics.get("resting_calories")
+                    weight = metrics.get("weight_kg")
+                    steps = metrics.get("steps")
+                    if None in (active, resting, weight, steps):
+                        logger.warning(
+                            "OutSystems: skipping record for %s — missing Garmin field(s) "
+                            "(active=%s, resting=%s, weight=%s, steps=%s)",
+                            summary.date, active, resting, weight, steps,
+                        )
+                    elif not fatsecret_ok:
+                        logger.warning(
+                            "OutSystems: skipping record for %s — FatSecret sync failed, "
+                            "nutrition totals would be false zeros",
+                            summary.date,
+                        )
+                    else:
+                        nutrition = repo.get_daily_nutrition(summary.date)
+                        outsystems.create_record(
+                            day=summary.date,
+                            active=active,
+                            rest=resting,
+                            food=nutrition["calories"],
+                            protein=nutrition["protein_g"],
+                            carbs=nutrition["carbs_g"],
+                            fat=nutrition["fat_g"],
+                            weight=weight,
+                            steps=steps,
+                        )
+                        logger.info("OutSystems: record created for %s", summary.date)
+            except Exception as exc:
+                msg = f"OutSystems sync falhou para {summary.date}: {str(exc)[:300]}"
+                logger.warning("OutSystems sync failed for %s (other data unaffected): %s", summary.date, exc)
+                warnings.append(msg)
+
+        return {"warnings": warnings}
 
     return sync_yesterday_data_job
 

@@ -30,11 +30,13 @@ class SystemMixin:
         await update.message.reply_text("⏳ A sincronizar com o Garmin Connect...")
         from ..formatters import format_error_message
         try:
-            self._garmin_sync()
+            result = self._garmin_sync()
         except Exception as exc:
             logger.error("Manual sync failed: %s", exc)
             await update.message.reply_text(format_error_message("sync manual", exc), parse_mode=ParseMode.MARKDOWN)
             return
+        for warning in (result or {}).get("warnings", []):
+            await update.message.reply_text(f"⚠️ {warning}")
         await self._send_yesterday_report()
 
     @safe_command

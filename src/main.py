@@ -98,9 +98,14 @@ def run() -> None:
         from .nutrition.fatsecret_client import FatSecretClient
         fatsecret = FatSecretClient(config.fatsecret_consumer_key, config.fatsecret_consumer_secret)
 
-    def sync_callback() -> None:
+    outsystems = None
+    if config.outsystems_api_base_url:
+        from .integrations.outsystems_client import OutSystemsClient
+        outsystems = OutSystemsClient(config.outsystems_api_base_url)
+
+    def sync_callback() -> dict:
         """Used by /sync command to trigger a manual sync."""
-        make_sync_job(garmin, repo, fatsecret)()
+        return make_sync_job(garmin, repo, fatsecret, outsystems)()
 
     def backfill_callback(missing_dates: list) -> None:
         import time

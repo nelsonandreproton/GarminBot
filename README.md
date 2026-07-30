@@ -123,6 +123,7 @@ All settings live in `.env`. See `.env.example` for the full list with comments.
 | `GYM_TRAINING_MINUTES` | `45` | Max workout duration in minutes |
 | `OBSIDIAN_VAULT_PATH` | — | Path to Obsidian vault (optional, enables `/xread` note saving) |
 | `GITHUB_TOKEN` | — | GitHub PAT with `repo` scope (optional, enables `/xread` vault push) |
+| `OUTSYSTEMS_API_BASE_URL` | — | Base URL of an external OutSystems daily-record API (optional; `/sync` creates a record for the synced day if one doesn't already exist) |
 
 ## Telegram Commands
 
