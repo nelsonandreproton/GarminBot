@@ -1,8 +1,9 @@
 """One-time backfill: create OutSystems daily records for past days that are
-missing one, using the same fail-closed gating as the daily /sync job
-(src/scheduler/jobs.py) — CreateRecord has no update endpoint, so a day is
-skipped (not created) whenever existence can't be verified or a core Garmin
-field / nutrition total is missing.
+missing one. CreateRecord has no update endpoint, so a day is skipped (not
+created) whenever existence can't be verified or nutrition data is missing
+(would be false-zero macros). Unlike the daily /sync job, a missing weigh-in
+does NOT block backfill — weight is sent as 0 for days with no real weigh-in
+(Nelson doesn't weigh in daily; historical backfill still has value without it).
 
 Usage:
     python -m scripts.backfill_outsystems --start 2026-01-01 [--apply]
@@ -36,11 +37,15 @@ def backfill(repo: Repository, outsystems: OutSystemsClient, start: date, end: d
         weight = row.weight_kg
         steps = row.steps
 
-        if None in (active, resting, weight, steps):
-            logger.info("SKIP %s — missing Garmin field(s) (active=%s, resting=%s, weight=%s, steps=%s)",
-                        day, active, resting, weight, steps)
+        if None in (active, resting, steps):
+            logger.info("SKIP %s — missing Garmin field(s) (active=%s, resting=%s, steps=%s)",
+                        day, active, resting, steps)
             skipped += 1
             continue
+
+        if weight is None:
+            logger.info("%s — no weigh-in that day, sending weight=0", day)
+            weight = 0.0
 
         nutrition = repo.get_daily_nutrition(day)
         if nutrition.get("entry_count", 0) == 0:
