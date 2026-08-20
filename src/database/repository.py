@@ -582,6 +582,18 @@ class Repository:
                 .all()
             )
 
+    def get_food_entry_missing_dates(self, start_date: date, end_date: date) -> list[date]:
+        """Return dates in [start_date, end_date] that have no rows in food_entries."""
+        rows = self.get_food_entries_range(start_date, end_date)
+        existing = {r.date for r in rows}
+        current = start_date
+        missing = []
+        while current <= end_date:
+            if current not in existing:
+                missing.append(current)
+            current += timedelta(days=1)
+        return missing
+
     def delete_last_food_entry(self, day: date) -> FoodEntry | None:
         """Delete the most recent food entry for the day. Returns deleted entry or None."""
         with self._session() as session:
