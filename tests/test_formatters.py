@@ -38,6 +38,60 @@ def test_format_daily_summary_basic():
     assert "Excelente" in text
 
 
+def test_format_daily_summary_with_waist_cm():
+    metrics = {
+        "date": date(2026, 2, 13),
+        "steps": 10000,
+        "active_calories": 450,
+        "resting_calories": 1700,
+        "weight_kg": 93.4,
+        "waist_cm": 95.5,
+    }
+    text = format_daily_summary(metrics)
+    assert "Perímetro abdominal: 95.5 cm" in text
+    assert "Peso: 93.4 kg" in text
+
+
+def test_format_daily_summary_waist_older_measurement_shows_date():
+    metrics = {
+        "date": date(2026, 8, 20),
+        "waist_cm": 95.5,
+        "waist_date": date(2026, 6, 1),
+    }
+    text = format_daily_summary(metrics)
+    assert "95.5 cm (01/06)" in text
+
+
+def test_format_daily_summary_waist_from_prior_year_includes_year():
+    """Prove-It: waist can go many months (even a year+) between measurements —
+    'dd/mm' alone could misread a year-old value from another year as recent."""
+    metrics = {
+        "date": date(2026, 8, 20),
+        "waist_cm": 105.0,
+        "waist_date": date(2025, 2, 27),
+    }
+    text = format_daily_summary(metrics)
+    assert "105.0 cm (27/02/2025)" in text
+
+
+def test_format_daily_summary_waist_same_day_no_suffix():
+    day = date(2026, 8, 20)
+    metrics = {"date": day, "waist_cm": 95.5, "waist_date": day}
+    text = format_daily_summary(metrics)
+    assert "95.5 cm\n" in text or text.strip().endswith("95.5 cm")
+
+
+def test_format_daily_summary_without_waist_cm_omits_line():
+    metrics = {
+        "date": date(2026, 2, 13),
+        "steps": 10000,
+        "active_calories": 450,
+        "resting_calories": 1700,
+    }
+    text = format_daily_summary(metrics)
+    assert "Perímetro abdominal" not in text
+
+
 def test_format_daily_summary_with_weekly_comparison():
     metrics = {
         "date": date(2026, 2, 13),

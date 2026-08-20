@@ -277,6 +277,87 @@ class TestShowBudgetFlag:
 
 
 # ---------------------------------------------------------------------------
+# Waist circumference wired into /ontem and /sync (_send_yesterday_report)
+# ---------------------------------------------------------------------------
+
+def _make_metrics_row(**overrides):
+    row = MagicMock()
+    row.date = date.today()
+    row.steps = 7000
+    row.active_calories = 500
+    row.resting_calories = 1700
+    row.total_calories = 2200
+    row.sleep_hours = 7.0
+    row.sleep_score = 72
+    row.sleep_quality = "Good"
+    for attr in ["sleep_deep_min", "sleep_light_min", "sleep_rem_min",
+                 "resting_heart_rate", "avg_stress", "body_battery_high",
+                 "body_battery_low", "spo2_avg", "weight_kg",
+                 "floors_ascended", "intensity_moderate_min", "intensity_vigorous_min"]:
+        setattr(row, attr, None)
+    for k, v in overrides.items():
+        setattr(row, k, v)
+    return row
+
+
+class TestWaistWiredIntoReports:
+    @pytest.mark.asyncio
+    async def test_ontem_includes_latest_waist_on_or_before(self, repo):
+        """Prove-It: before this change, /ontem never queried WaistEntry at all,
+        so a logged /barriga measurement never appeared in the report. Waist is
+        sparse, so the lookup must fall back to the last known measurement, not
+        require an exact date match."""
+        row = _make_metrics_row()
+        update = _make_update()
+        bot = _make_bot(repo, chat_id=update.effective_chat.id)
+
+        with patch.object(repo, "get_metrics_by_date", return_value=row), \
+             patch.object(repo, "get_daily_nutrition", return_value={"entry_count": 0}), \
+             patch.object(repo, "get_latest_waist_on_or_before",
+                           return_value=(date(2026, 1, 1), 95.5)) as mock_waist, \
+             patch.object(bot, "send_daily_summary", new_callable=AsyncMock) as mock_send:
+            await bot._cmd_ontem(update, _make_context())
+
+        mock_waist.assert_called_once()
+        metrics = mock_send.call_args.args[0]
+        assert metrics["waist_cm"] == 95.5
+        assert metrics["waist_date"] == date(2026, 1, 1)
+
+    @pytest.mark.asyncio
+    async def test_ontem_waist_none_when_never_logged(self, repo):
+        row = _make_metrics_row()
+        update = _make_update()
+        bot = _make_bot(repo, chat_id=update.effective_chat.id)
+
+        with patch.object(repo, "get_metrics_by_date", return_value=row), \
+             patch.object(repo, "get_daily_nutrition", return_value={"entry_count": 0}), \
+             patch.object(repo, "get_latest_waist_on_or_before", return_value=None), \
+             patch.object(bot, "send_daily_summary", new_callable=AsyncMock) as mock_send:
+            await bot._cmd_ontem(update, _make_context())
+
+        metrics = mock_send.call_args.args[0]
+        assert metrics["waist_cm"] is None
+
+    @pytest.mark.asyncio
+    async def test_sync_report_includes_latest_waist_on_or_before(self, repo):
+        row = _make_metrics_row()
+        bot = _make_bot(repo, chat_id=999999)
+
+        with patch.object(repo, "get_metrics_by_date", return_value=row), \
+             patch.object(repo, "get_daily_nutrition", return_value={"entry_count": 0}), \
+             patch.object(repo, "get_garmin_activities_for_date", return_value=[]), \
+             patch.object(repo, "get_latest_waist_on_or_before",
+                           return_value=(date(2026, 2, 27), 91.0)) as mock_waist, \
+             patch.object(bot, "send_daily_summary", new_callable=AsyncMock) as mock_send, \
+             patch.object(repo, "log_report_sent"):
+            await bot._send_yesterday_report()
+
+        mock_waist.assert_called_once()
+        metrics = mock_send.call_args.args[0]
+        assert metrics["waist_cm"] == 91.0
+
+
+# ---------------------------------------------------------------------------
 # send_daily_summary: budget block present when show_budget=True
 # ---------------------------------------------------------------------------
 

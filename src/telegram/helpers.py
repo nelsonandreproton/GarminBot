@@ -76,7 +76,8 @@ _EXPORT_FORMATS = {"csv", "json", "xlsx"}
 
 
 def _parse_export_args(args: list[str]) -> tuple[str, date, date]:
-    """Parse `[formato] [inicio] [fim]` args for /exportar refeicoes.
+    """Parse `[formato] [inicio] [fim]` args for /exportar's subcommands
+    (base metrics, refeicoes, treinos).
 
     formato ∈ {csv, json, xlsx} (case-insensitive, default csv).
     inicio/fim in YYYY-MM-DD format. Missing inicio defaults to 90 days ago;
@@ -105,7 +106,7 @@ def _parse_export_args(args: list[str]) -> tuple[str, date, date]:
     elif len(tokens) == 2:
         start, end = _parse_date(tokens[0]), _parse_date(tokens[1])
     else:
-        raise ValueError("Demasiados argumentos. Usa: /exportar refeicoes [formato] [inicio] [fim]")
+        raise ValueError("Demasiados argumentos. Usa: [formato] [inicio] [fim]")
 
     if start > today:
         raise ValueError("Não posso exportar datas futuras.")

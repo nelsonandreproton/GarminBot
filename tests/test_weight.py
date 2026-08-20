@@ -681,6 +681,37 @@ def test_get_recent_waist_records_respects_limit(repo):
     assert len(result) == 5
 
 
+def test_get_latest_waist_on_or_before_exact_date_match(repo):
+    repo.save_waist_entry(date(2026, 2, 15), 95.5)
+    result = repo.get_latest_waist_on_or_before(date(2026, 2, 15))
+    assert result == (date(2026, 2, 15), 95.5)
+
+
+def test_get_latest_waist_on_or_before_none_when_nothing_logged(repo):
+    assert repo.get_latest_waist_on_or_before(date(2026, 2, 15)) is None
+
+
+def test_get_latest_waist_on_or_before_falls_back_to_earlier_measurement(repo):
+    """Waist is sparse — a report for a day with no measurement should still
+    surface the last known one, not None, since the value is still relevant."""
+    repo.save_waist_entry(date(2026, 2, 10), 96.0)
+    result = repo.get_latest_waist_on_or_before(date(2026, 8, 20))
+    assert result == (date(2026, 2, 10), 96.0)
+
+
+def test_get_latest_waist_on_or_before_ignores_future_measurements(repo):
+    repo.save_waist_entry(date(2026, 3, 1), 94.0)
+    assert repo.get_latest_waist_on_or_before(date(2026, 2, 15)) is None
+
+
+def test_get_latest_waist_on_or_before_picks_most_recent_of_several(repo):
+    repo.save_waist_entry(date(2026, 1, 1), 100.0)
+    repo.save_waist_entry(date(2026, 2, 1), 98.0)
+    repo.save_waist_entry(date(2026, 6, 1), 95.0)
+    result = repo.get_latest_waist_on_or_before(date(2026, 8, 20))
+    assert result == (date(2026, 6, 1), 95.0)
+
+
 # ------------------------------------------------------------------ #
 # format_waist_status                                                 #
 # ------------------------------------------------------------------ #

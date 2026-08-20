@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import csv
 import io as _io
 import logging
 from datetime import date, timedelta
@@ -170,33 +169,45 @@ class SystemMixin:
             )
             return
 
-        limit = None
+        # /exportar N — backward-compatible shortcut: last N days, CSV.
         if args and args[0].isdigit():
-            limit = int(args[0])
+            rows = self._repo.get_all_metrics(limit_days=int(args[0]))
+            await self._send_daily_metrics_export(update, "csv", rows)
+            return
 
-        rows = self._repo.get_all_metrics(limit_days=limit)
+        # /exportar [csv|json|xlsx] [YYYY-MM-DD] [YYYY-MM-DD] — same data as /sync,
+        # one row per day, over a chosen period (default: last 90 days).
+        try:
+            fmt, start, end = _parse_export_args(args)
+        except ValueError as exc:
+            await update.message.reply_text(f"❌ {exc}")
+            return
+        if fmt == "xlsx":
+            try:
+                import openpyxl  # noqa: F401
+            except ImportError:
+                await update.message.reply_text(
+                    "⚠️ Exportação em XLSX não disponível (openpyxl não instalado)."
+                )
+                return
+
+        rows = self._repo.get_metrics_range(start, end)
+        await self._send_daily_metrics_export(update, fmt, rows)
+
+    async def _send_daily_metrics_export(self, update: Update, fmt: str, rows: list) -> None:
+        from telegram import Bot, InputFile
         if not rows:
             await update.message.reply_text("Sem dados para exportar.")
             return
 
-        buf = _io.StringIO()
-        writer = csv.writer(buf)
-        writer.writerow(["data", "sono_horas", "sono_score", "sono_qualidade", "passos",
-                         "calorias_ativas", "calorias_repouso", "fc_repouso", "stress_medio",
-                         "body_battery_max", "body_battery_min"])
-        for r in rows:
-            writer.writerow([
-                r.date, r.sleep_hours, r.sleep_score, r.sleep_quality,
-                r.steps, r.active_calories, r.resting_calories,
-                r.resting_heart_rate, r.avg_stress, r.body_battery_high, r.body_battery_low,
-            ])
-
-        filename = f"garmin_export_{rows[0].date}_{rows[-1].date}.csv"
-        csv_bytes = buf.getvalue().encode("utf-8")
+        waist_by_date = self._repo.get_waist_range(rows[0].date, rows[-1].date)
+        from ..daily_export import build_export
+        file_bytes = build_export(fmt, rows, waist_by_date)
+        filename = f"garmin_export_{rows[0].date}_{rows[-1].date}.{fmt}"
         bot = Bot(token=self._config.telegram_bot_token)
         await bot.send_document(
             chat_id=self._chat_id,
-            document=InputFile(_io.BytesIO(csv_bytes), filename=filename),
+            document=InputFile(_io.BytesIO(file_bytes), filename=filename),
             caption=f"📊 {len(rows)} dias exportados",
         )
 

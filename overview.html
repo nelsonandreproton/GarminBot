@@ -101,6 +101,8 @@
           <span class="tag">Barcode scanning</span><span class="tag">X/Twitter analysis</span>
           <span class="tag">Meal export (CSV/JSON/XLSX)</span>
           <span class="tag">Activity export (CSV/JSON/XLSX)</span>
+          <span class="tag">Daily metrics export (CSV/JSON/XLSX)</span>
+          <span class="tag">Waist tracking</span>
         </div>
       </div>
       <div class="card">
@@ -242,6 +244,7 @@
           <tr><td><code>src/database/repository.py</code></td><td>All SQLAlchemy DB read/write operations</td><td><span class="pill blue">db</span></td></tr>
           <tr><td><code>src/telegram/meal_export.py</code></td><td>Builds CSV/JSON/XLSX byte payloads for /exportar refeicoes</td><td><span class="pill purple">util</span></td></tr>
           <tr><td><code>src/telegram/activity_export.py</code></td><td>Builds CSV/JSON/XLSX byte payloads for /exportar treinos</td><td><span class="pill purple">util</span></td></tr>
+          <tr><td><code>src/telegram/daily_export.py</code></td><td>Builds CSV/JSON/XLSX byte payloads for /exportar (daily metrics, incl. weight/waist)</td><td><span class="pill purple">util</span></td></tr>
         </tbody>
       </table>
     </div>

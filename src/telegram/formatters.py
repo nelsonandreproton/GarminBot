@@ -143,7 +143,8 @@ def format_daily_summary(
     bb_low = metrics.get("body_battery_low")
     spo2 = metrics.get("spo2_avg")
     weight = metrics.get("weight_kg")
-    if any(v is not None for v in [rhr, avg_stress, bb_high, bb_low, spo2, weight]):
+    waist = metrics.get("waist_cm")
+    if any(v is not None for v in [rhr, avg_stress, bb_high, bb_low, spo2, weight, waist]):
         lines += ["", "❤️ *Saúde*"]
         if rhr is not None:
             lines.append(f"• FC repouso: {rhr} bpm")
@@ -155,6 +156,16 @@ def format_daily_summary(
             lines.append(f"• SpO2: {spo2:.1f}%")
         if weight is not None:
             lines.append(f"• Peso: {weight:.1f} kg")
+        if waist is not None:
+            waist_date = metrics.get("waist_date")
+            suffix = ""
+            if waist_date and waist_date != day:
+                # Include the year whenever it differs from the report's — waist
+                # is logged sparsely (can be many months between measurements),
+                # so "dd/mm" alone could misread a year-old value as recent.
+                date_fmt = "%d/%m/%Y" if waist_date.year != day.year else "%d/%m"
+                suffix = f" ({waist_date.strftime(date_fmt)})"
+            lines.append(f"• Perímetro abdominal: {waist:.1f} cm{suffix}")
 
     if weekly_stats:
         avg_sleep = weekly_stats.get("sleep_avg_hours")
@@ -368,7 +379,8 @@ def format_help_message() -> str:
         "/sync — Sincronizar e ver resumo do dia anterior\n"
         "/backfill N — Sincronizar últimos N dias\n"
         "/historico YYYY-MM-DD ou N — Ver dia ou últimos N dias\n"
-        "/exportar N — Exportar dados Garmin em CSV\n"
+        "/exportar N — Exportar últimos N dias de métricas Garmin em CSV\n"
+        "/exportar [csv|json|xlsx] [início] [fim] — Exportar métricas diárias (sono, atividade, saúde, peso, cintura) num período\n"
         "/exportar refeicoes [csv|json|xlsx] [início] [fim] — Exportar refeições registadas num período\n"
         "/exportar treinos [csv|json|xlsx] [início] [fim] — Exportar treinos Garmin registados num período\n"
         "/objetivo métrica valor — Ver ou definir objetivos (passos/sono/peso/calorias/proteina/gordura/hidratos)\n"

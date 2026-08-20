@@ -140,8 +140,10 @@ All settings live in `.env`. See `.env.example` for the full list with comments.
 | `/apagar` | Delete last food entry |
 | `/treino` | Generate a workout recommendation for today |
 | `/objetivo` | View or set goals (passos/sono/peso/calorias/proteina/gordura/hidratos) |
+| `/barriga [valor]` | View recent waist circumference records, or register today's (cm) |
 | `/xread <url>` | Analyse a tweet/X post and save insights to Obsidian |
 | `/exportar N` | Export the last N days of Garmin metrics as CSV |
+| `/exportar [csv\|json\|xlsx] [início] [fim]` | Export daily metrics (same data as /sync — sleep, activity, health, weight, waist) for a period |
 | `/exportar refeicoes [csv\|json\|xlsx] [início] [fim]` | Export registered meals (incl. FatSecret) for a period, auto-syncing missing FatSecret days first |
 | `/exportar treinos [csv\|json\|xlsx] [início] [fim]` | Export synced Garmin activities (date, type, duration, calories, min/avg/max HR, distance) for a period |
 

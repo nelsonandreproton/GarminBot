@@ -88,6 +88,7 @@ class HealthMixin:
             await update.message.reply_text("Sem dados para ontem. Tenta /sync primeiro.")
             return
         metrics = _row_to_metrics(row)
+        self._attach_latest_waist(metrics, yesterday)
         nutrition = self._repo.get_daily_nutrition(yesterday)
         if nutrition.get("entry_count", 0) > 0:
             metrics["nutrition"] = {
@@ -97,6 +98,14 @@ class HealthMixin:
                 "total_calories": metrics.get("total_calories"),
             }
         await self.send_daily_summary(metrics)
+
+    def _attach_latest_waist(self, metrics: dict, report_date: date) -> None:
+        """Set waist_cm/waist_date on metrics to the most recent measurement
+        on or before report_date — waist is logged sparsely via /barriga, so
+        exact-date matching would show nothing on almost every report."""
+        latest = self._repo.get_latest_waist_on_or_before(report_date)
+        metrics["waist_cm"] = latest[1] if latest else None
+        metrics["waist_date"] = latest[0] if latest else None
 
     @safe_command
     async def _cmd_semana(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -200,6 +209,7 @@ class HealthMixin:
             self._repo.log_report_sent()
             return
         metrics = _row_to_metrics(row)
+        self._attach_latest_waist(metrics, yesterday)
         nutrition = self._repo.get_daily_nutrition(yesterday)
         if nutrition.get("entry_count", 0) > 0:
             metrics["nutrition"] = {

@@ -460,6 +460,34 @@ class Repository:
                 session.add(WaistEntry(date=day, waist_cm=waist_cm))
         logger.debug("Saved waist measurement %.1f cm for %s", waist_cm, day)
 
+    def get_latest_waist_on_or_before(self, day: date) -> tuple[date, float] | None:
+        """Return the most recent (date, waist_cm) measured on or before `day`.
+
+        Waist is logged manually via /barriga and is typically sparse (weeks or
+        months between measurements) — unlike weight, which Garmin auto-syncs
+        most days. Exact-date matching against a sparse manual table would show
+        nothing on almost every report; the last known measurement is still the
+        relevant number until a newer one is logged.
+        """
+        with self._session() as session:
+            row = (
+                session.query(WaistEntry)
+                .filter(WaistEntry.date <= day)
+                .order_by(WaistEntry.date.desc())
+                .first()
+            )
+            return (row.date, row.waist_cm) if row else None
+
+    def get_waist_range(self, start_date: date, end_date: date) -> dict[date, float]:
+        """Return {date: waist_cm} for every WaistEntry in [start_date, end_date]."""
+        with self._session() as session:
+            rows = (
+                session.query(WaistEntry.date, WaistEntry.waist_cm)
+                .filter(WaistEntry.date >= start_date, WaistEntry.date <= end_date)
+                .all()
+            )
+            return {r.date: r.waist_cm for r in rows}
+
     def get_recent_waist_records(self, limit: int = 10) -> list[tuple[date, float]]:
         """Return the last `limit` waist records as (date, cm) pairs, newest first."""
         with self._session() as session:
