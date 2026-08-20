@@ -322,10 +322,15 @@ class GarminClient:
         try:
             bb = client.get_body_battery(date_str)
             if bb and isinstance(bb, list) and len(bb) > 0:
-                values = [item.get("charged", 0) for item in bb if item.get("charged") is not None]
-                if values:
-                    result["body_battery_high"] = max(values)
-                    result["body_battery_low"] = min(values)
+                # get_body_battery returns one summary object per day; "charged"/
+                # "drained" are cumulative gain/loss totals for the day, NOT level
+                # readings — the actual level trend is bodyBatteryValuesArray,
+                # a list of [timestamp, level] pairs (level at descriptor index 1).
+                points = bb[0].get("bodyBatteryValuesArray") or []
+                levels = [p[1] for p in points if len(p) > 1 and p[1] is not None]
+                if levels:
+                    result["body_battery_high"] = max(levels)
+                    result["body_battery_low"] = min(levels)
         except Exception as exc:
             if _is_rate_limit(exc):
                 self._handle_rate_limit()

@@ -128,6 +128,72 @@ def test_get_yesterday_summary_partial_failure():
     assert summary.activity.steps is None
 
 
+def test_get_health_data_body_battery_uses_level_trend_not_charged_total():
+    """Prove-It: get_body_battery returns ONE summary object per day whose
+    "charged"/"drained" fields are cumulative gain/loss totals, not level
+    readings. The old code took max/min of a 1-item list of "charged" values,
+    which are always equal — producing the observed "68-68" bug. The real
+    high/low must come from bodyBatteryValuesArray (the [timestamp, level]
+    trend), matching real production data: min 10, max 87 on 2026-08-19."""
+    client = _make_client()
+    mock_garmin = MagicMock()
+    mock_garmin.get_stats.return_value = {}
+    mock_garmin.get_stress_data.return_value = {}
+    mock_garmin.get_body_battery.return_value = [{
+        "date": "2026-08-19",
+        "charged": 66,
+        "drained": 77,
+        "bodyBatteryValuesArray": [
+            [1787094000000, 21],
+            [1787121720000, 85],
+            [1787123520000, 87],
+            [1787151060000, 44],
+            [1787151600000, 44],
+            [1787179500000, 10],
+        ],
+        "bodyBatteryValueDescriptorDTOList": [
+            {"bodyBatteryValueDescriptorIndex": 0, "bodyBatteryValueDescriptorKey": "timestamp"},
+            {"bodyBatteryValueDescriptorIndex": 1, "bodyBatteryValueDescriptorKey": "bodyBatteryLevel"},
+        ],
+    }]
+    client._client = mock_garmin
+
+    result = client.get_health_data(date(2026, 8, 19))
+
+    assert result["body_battery_low"] == 10
+    assert result["body_battery_high"] == 87
+
+
+def test_get_health_data_body_battery_empty_values_array_stays_none():
+    client = _make_client()
+    mock_garmin = MagicMock()
+    mock_garmin.get_stats.return_value = {}
+    mock_garmin.get_stress_data.return_value = {}
+    mock_garmin.get_body_battery.return_value = [{
+        "date": "2026-01-15", "charged": 0, "drained": 0, "bodyBatteryValuesArray": [],
+    }]
+    client._client = mock_garmin
+
+    result = client.get_health_data(date(2026, 1, 15))
+
+    assert result["body_battery_high"] is None
+    assert result["body_battery_low"] is None
+
+
+def test_get_health_data_body_battery_empty_list_response():
+    client = _make_client()
+    mock_garmin = MagicMock()
+    mock_garmin.get_stats.return_value = {}
+    mock_garmin.get_stress_data.return_value = {}
+    mock_garmin.get_body_battery.return_value = []
+    client._client = mock_garmin
+
+    result = client.get_health_data(date(2026, 8, 19))
+
+    assert result["body_battery_high"] is None
+    assert result["body_battery_low"] is None
+
+
 def test_to_metrics_dict():
     from src.garmin.client import DailySummary
     client = _make_client()
