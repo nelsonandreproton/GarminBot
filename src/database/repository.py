@@ -99,6 +99,7 @@ class Repository:
                 ga_new_cols = {
                     "avg_hr": "INTEGER",
                     "max_hr": "INTEGER",
+                    "min_hr": "INTEGER",
                     "is_indoor": "BOOLEAN",
                     "total_sets": "INTEGER",
                     "total_reps": "INTEGER",
@@ -854,6 +855,7 @@ class Repository:
         distance_km: float | None,
         avg_hr: int | None = None,
         max_hr: int | None = None,
+        min_hr: int | None = None,
         is_indoor: bool | None = None,
         total_sets: int | None = None,
         total_reps: int | None = None,
@@ -873,11 +875,24 @@ class Repository:
                 existing.distance_km = distance_km
                 existing.avg_hr = avg_hr
                 existing.max_hr = max_hr
+                # min_hr and the strength-detail fields (total_sets/total_reps/
+                # min_weight_kg/max_weight_kg) come from separate detail-endpoint
+                # calls that can fail independently of the list call the other
+                # fields use — a transient failure must not overwrite a
+                # previously-known value with None (activity history is
+                # immutable; a real None only ever means "never fetched", not
+                # "no longer true").
+                if min_hr is not None:
+                    existing.min_hr = min_hr
                 existing.is_indoor = is_indoor
-                existing.total_sets = total_sets
-                existing.total_reps = total_reps
-                existing.min_weight_kg = min_weight_kg
-                existing.max_weight_kg = max_weight_kg
+                if total_sets is not None:
+                    existing.total_sets = total_sets
+                if total_reps is not None:
+                    existing.total_reps = total_reps
+                if min_weight_kg is not None:
+                    existing.min_weight_kg = min_weight_kg
+                if max_weight_kg is not None:
+                    existing.max_weight_kg = max_weight_kg
                 existing.synced_at = datetime.now(UTC)
             else:
                 session.add(GarminActivity(
@@ -890,6 +905,7 @@ class Repository:
                     distance_km=distance_km,
                     avg_hr=avg_hr,
                     max_hr=max_hr,
+                    min_hr=min_hr,
                     is_indoor=is_indoor,
                     total_sets=total_sets,
                     total_reps=total_reps,
@@ -911,6 +927,7 @@ class Repository:
                 distance_km=act.get("distance_km"),
                 avg_hr=act.get("avg_hr"),
                 max_hr=act.get("max_hr"),
+                min_hr=act.get("min_hr"),
                 is_indoor=act.get("is_indoor"),
                 total_sets=act.get("total_sets"),
                 total_reps=act.get("total_reps"),

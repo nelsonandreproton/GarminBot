@@ -159,6 +159,7 @@ class GarminActivity(Base):
     distance_km = Column(Float, nullable=True)
     avg_hr = Column(Integer, nullable=True)
     max_hr = Column(Integer, nullable=True)
+    min_hr = Column(Integer, nullable=True)
     is_indoor = Column(Boolean, nullable=True)
     total_sets = Column(Integer, nullable=True)
     total_reps = Column(Integer, nullable=True)

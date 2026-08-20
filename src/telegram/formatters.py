@@ -370,6 +370,7 @@ def format_help_message() -> str:
         "/historico YYYY-MM-DD ou N — Ver dia ou últimos N dias\n"
         "/exportar N — Exportar dados Garmin em CSV\n"
         "/exportar refeicoes [csv|json|xlsx] [início] [fim] — Exportar refeições registadas num período\n"
+        "/exportar treinos [csv|json|xlsx] [início] [fim] — Exportar treinos Garmin registados num período\n"
         "/objetivo métrica valor — Ver ou definir objetivos (passos/sono/peso/calorias/proteina/gordura/hidratos)\n"
         "/peso [valor] — Ver ou registar peso\n"
         "/status — Estado do bot\n"

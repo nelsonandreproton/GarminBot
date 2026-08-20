@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import time as _time
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import garminconnect
@@ -405,8 +405,8 @@ class GarminClient:
 
         Returns a list of activity dicts with keys:
             activity_id, name, type_key, duration_min, calories, distance_km,
-            avg_hr, max_hr, is_indoor, and (for strength workouts) total_sets,
-            total_reps, min_weight_kg, max_weight_kg.
+            avg_hr, max_hr, min_hr, is_indoor, and (for strength workouts)
+            total_sets, total_reps, min_weight_kg, max_weight_kg.
         Returns an empty list if no activities or on any error.
         """
         client = self._ensure_authenticated()
@@ -415,46 +415,120 @@ class GarminClient:
             raw = client.get_activities_by_date(date_str, date_str)
             if not raw:
                 return []
+            return [self._map_activity_item(client, item) for item in raw
+                    if item.get("activityId") is not None]
+        except Exception as exc:
+            logger.debug("Could not fetch activities for %s: %s", date_str, exc)
+            return []
+
+    def get_activities_in_range(
+        self, start: date, end: date, pace_seconds: float = 0.3,
+        skip_detail_for: set[int] | None = None,
+    ) -> list[dict]:
+        """Fetch recorded activities across a wide date range in a single API call.
+
+        Used by the historical backfill script — a single get_activities_by_date
+        call can cover many months (verified: 61 activities returned for
+        2026-01-01..2026-08-20 in one call). Per-activity detail calls (min_hr,
+        and strength sets) still happen once per activity, same as
+        get_activities_for_date. Unlike the daily sync (1-4 detail calls),
+        a backfill can trigger dozens in one run, so pace_seconds adds a
+        courtesy delay between each activity's detail calls.
+
+        skip_detail_for: activity_ids to skip the per-activity detail call for
+        (e.g. already backfilled) — makes re-runs cheap by only paying the
+        detail-endpoint cost for activities actually missing data. Skipped
+        activities still get the cheap list-endpoint fields, with min_hr and
+        strength fields left absent from the returned dict.
+
+        Returns the same dict shape as get_activities_for_date. Empty list on
+        no activities or any error.
+        """
+        client = self._ensure_authenticated()
+        skip_detail_for = skip_detail_for or set()
+        try:
+            raw = client.get_activities_by_date(start.isoformat(), end.isoformat())
+            if not raw:
+                return []
             result = []
             for item in raw:
                 activity_id = item.get("activityId")
                 if activity_id is None:
                     continue
-                type_key = (item.get("activityType") or {}).get("typeKey", "unknown")
-                duration_s = item.get("duration")
-                duration_min = round(duration_s / 60) if duration_s is not None else None
-                calories = item.get("calories")
-                calories = int(calories) if calories is not None else None
-                distance_m = item.get("distance")
-                distance_km = round(distance_m / 1000, 2) if distance_m else None
-                avg_hr = item.get("averageHR")
-                avg_hr = int(round(avg_hr)) if avg_hr is not None else None
-                max_hr = item.get("maxHR")
-                max_hr = int(round(max_hr)) if max_hr is not None else None
-
-                activity = {
-                    "activity_id": int(activity_id),
-                    "name": item.get("activityName") or type_key,
-                    "type_key": type_key,
-                    "duration_min": duration_min,
-                    "calories": calories,
-                    "distance_km": distance_km,
-                    "avg_hr": avg_hr,
-                    "max_hr": max_hr,
-                    "is_indoor": _is_indoor_activity(type_key, item),
-                }
-
-                # Strength workouts: fetch per-exercise sets to aggregate
-                # rounds (sets), reps and weight range. This is an extra API
-                # call per strength activity, so it is gated by type_key.
-                if type_key in _STRENGTH_TYPE_KEYS:
-                    activity.update(self._get_strength_detail(client, int(activity_id)))
-
-                result.append(activity)
+                fetch_detail = int(activity_id) not in skip_detail_for
+                result.append(self._map_activity_item(client, item, fetch_detail=fetch_detail))
+                if fetch_detail and pace_seconds:
+                    _time.sleep(pace_seconds)
             return result
         except Exception as exc:
-            logger.debug("Could not fetch activities for %s: %s", date_str, exc)
+            logger.debug("Could not fetch activities for %s..%s: %s", start, end, exc)
             return []
+
+    def _map_activity_item(self, client: Any, item: dict, fetch_detail: bool = True) -> dict:
+        """Map a single raw activity-list item to our activity dict, fetching
+        per-activity detail (min_hr, and strength sets when applicable) unless
+        fetch_detail is False (already-backfilled activities on a re-run).
+
+        Includes a "date" key parsed from startTimeLocal — get_activities_for_date
+        callers already know the day (they pass it separately), but
+        get_activities_in_range spans many days so each activity needs its own.
+        """
+        activity_id = item.get("activityId")
+        type_key = (item.get("activityType") or {}).get("typeKey", "unknown")
+        start_local = item.get("startTimeLocal")
+        activity_date = None
+        if start_local:
+            try:
+                activity_date = datetime.strptime(start_local[:10], "%Y-%m-%d").date()
+            except ValueError:
+                activity_date = None
+        duration_s = item.get("duration")
+        duration_min = round(duration_s / 60) if duration_s is not None else None
+        calories = item.get("calories")
+        calories = int(calories) if calories is not None else None
+        distance_m = item.get("distance")
+        distance_km = round(distance_m / 1000, 2) if distance_m else None
+        avg_hr = item.get("averageHR")
+        avg_hr = int(round(avg_hr)) if avg_hr is not None else None
+        max_hr = item.get("maxHR")
+        max_hr = int(round(max_hr)) if max_hr is not None else None
+
+        activity = {
+            "activity_id": int(activity_id),
+            "date": activity_date,
+            "name": item.get("activityName") or type_key,
+            "type_key": type_key,
+            "duration_min": duration_min,
+            "calories": calories,
+            "distance_km": distance_km,
+            "avg_hr": avg_hr,
+            "max_hr": max_hr,
+            "min_hr": self._get_min_hr(client, int(activity_id)) if fetch_detail else None,
+            "is_indoor": _is_indoor_activity(type_key, item),
+        }
+
+        # Strength workouts: fetch per-exercise sets to aggregate
+        # rounds (sets), reps and weight range. This is an extra API
+        # call per strength activity, so it is gated by type_key.
+        if fetch_detail and type_key in _STRENGTH_TYPE_KEYS:
+            activity.update(self._get_strength_detail(client, int(activity_id)))
+
+        return activity
+
+    def _get_min_hr(self, client: Any, activity_id: int) -> int | None:
+        """Fetch minHR for an activity from the per-activity detail endpoint.
+
+        The list endpoint (get_activities_by_date) does not include minHR at
+        all — only the detail endpoint's summaryDTO has it. Returns None on
+        any error (missing key, API failure, etc.) — never raises.
+        """
+        try:
+            data = client.get_activity(activity_id)
+            min_hr = (data or {}).get("summaryDTO", {}).get("minHR")
+            return int(round(min_hr)) if min_hr is not None else None
+        except Exception as exc:
+            logger.debug("Could not fetch min_hr for activity %s: %s", activity_id, exc)
+            return None
 
     def _get_strength_detail(self, client: Any, activity_id: int) -> dict:
         """Aggregate sets/reps/weight from a strength activity's exercise sets.

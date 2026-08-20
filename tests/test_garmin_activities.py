@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import tempfile
 from datetime import date, timedelta
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -22,17 +22,22 @@ from src.telegram.formatters import (
 # ------------------------------------------------------------------ #
 
 @pytest.fixture
-def repo():
+def db_path():
     with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-        db_path = f.name
+        path = f.name
+    yield path
+    try:
+        os.unlink(path)
+    except PermissionError:
+        pass
+
+
+@pytest.fixture
+def repo(db_path):
     r = Repository(db_path)
     r.init_database()
     yield r
     r._engine.dispose()
-    try:
-        os.unlink(db_path)
-    except PermissionError:
-        pass
 
 
 def _make_activity(activity_id: int, day: date, name: str = "Musculação",
@@ -342,6 +347,54 @@ def test_get_activities_for_date_strength_sets_error_is_safe():
     assert "min_weight_kg" not in result[0]
 
 
+def test_get_activities_for_date_fetches_min_hr():
+    from src.garmin.client import GarminClient
+    client = GarminClient("test@example.com", "password")
+    mock_garmin = MagicMock()
+    mock_garmin.get_activities_by_date.return_value = [
+        {"activityId": 1, "activityName": "Walk", "activityType": {"typeKey": "walking"},
+         "duration": 1800, "calories": 150, "distance": 2500.0,
+         "averageHR": 120.0, "maxHR": 143.0},
+    ]
+    mock_garmin.get_activity.return_value = {"summaryDTO": {"minHR": 91.0}}
+    client._client = mock_garmin
+
+    result = client.get_activities_for_date(date(2026, 2, 25))
+    assert result[0]["min_hr"] == 91
+    mock_garmin.get_activity.assert_called_once_with(1)
+
+
+def test_get_activities_for_date_min_hr_none_on_error():
+    from src.garmin.client import GarminClient
+    client = GarminClient("test@example.com", "password")
+    mock_garmin = MagicMock()
+    mock_garmin.get_activities_by_date.return_value = [
+        {"activityId": 1, "activityName": "Walk", "activityType": {"typeKey": "walking"},
+         "duration": 1800, "calories": 150, "distance": 2500.0},
+    ]
+    mock_garmin.get_activity.side_effect = Exception("boom")
+    client._client = mock_garmin
+
+    result = client.get_activities_for_date(date(2026, 2, 25))
+    assert result[0]["min_hr"] is None
+    assert result[0]["activity_id"] == 1
+
+
+def test_get_activities_for_date_min_hr_missing_key_is_none():
+    from src.garmin.client import GarminClient
+    client = GarminClient("test@example.com", "password")
+    mock_garmin = MagicMock()
+    mock_garmin.get_activities_by_date.return_value = [
+        {"activityId": 1, "activityName": "Walk", "activityType": {"typeKey": "walking"},
+         "duration": 1800, "calories": 150, "distance": 2500.0},
+    ]
+    mock_garmin.get_activity.return_value = {"summaryDTO": {}}
+    client._client = mock_garmin
+
+    result = client.get_activities_for_date(date(2026, 2, 25))
+    assert result[0]["min_hr"] is None
+
+
 def test_get_activities_for_date_no_sets_call_for_non_strength():
     from src.garmin.client import GarminClient
     client = GarminClient("test@example.com", "password")
@@ -354,6 +407,210 @@ def test_get_activities_for_date_no_sets_call_for_non_strength():
 
     client.get_activities_for_date(date(2026, 2, 25))
     mock_garmin.get_activity_exercise_sets.assert_not_called()
+
+
+# ------------------------------------------------------------------ #
+# GarminClient: get_activities_in_range (used by backfill script)     #
+# ------------------------------------------------------------------ #
+
+def test_get_activities_in_range_parses_multiple_items():
+    from src.garmin.client import GarminClient
+    client = GarminClient("test@example.com", "password")
+    mock_garmin = MagicMock()
+    mock_garmin.get_activities_by_date.return_value = [
+        {"activityId": 1, "activityName": "Walk", "activityType": {"typeKey": "walking"},
+         "duration": 1800, "calories": 150, "distance": 2500.0, "averageHR": 110, "maxHR": 138},
+        {"activityId": 2, "activityName": "Run", "activityType": {"typeKey": "running"},
+         "duration": 1200, "calories": 200, "distance": 3000.0},
+    ]
+    mock_garmin.get_activity.return_value = {"summaryDTO": {"minHR": 90.0}}
+    client._client = mock_garmin
+
+    result = client.get_activities_in_range(date(2026, 1, 1), date(2026, 8, 20))
+    assert len(result) == 2
+    assert result[0]["activity_id"] == 1
+    assert result[0]["min_hr"] == 90
+    mock_garmin.get_activities_by_date.assert_called_once_with("2026-01-01", "2026-08-20")
+
+
+def test_get_activities_in_range_fetches_strength_detail():
+    from src.garmin.client import GarminClient
+    client = GarminClient("test@example.com", "password")
+    mock_garmin = MagicMock()
+    mock_garmin.get_activities_by_date.return_value = [
+        {"activityId": 7, "activityName": "Gym", "activityType": {"typeKey": "strength_training"},
+         "duration": 2700, "calories": 320, "distance": None},
+    ]
+    mock_garmin.get_activity.return_value = {"summaryDTO": {"minHR": 95.0}}
+    mock_garmin.get_activity_exercise_sets.return_value = {
+        "exerciseSets": [{"setType": "ACTIVE", "repetitionCount": 10, "weight": 20000}]
+    }
+    client._client = mock_garmin
+
+    result = client.get_activities_in_range(date(2026, 1, 1), date(2026, 8, 20))
+    assert result[0]["total_sets"] == 1
+    assert result[0]["min_weight_kg"] == 20.0
+
+
+def test_get_activities_in_range_includes_activity_date():
+    """Unlike get_activities_for_date (day is already known by the caller),
+    get_activities_in_range spans multiple days, so each activity dict must
+    carry its own date — needed by the backfill script to upsert correctly.
+    """
+    from src.garmin.client import GarminClient
+    client = GarminClient("test@example.com", "password")
+    mock_garmin = MagicMock()
+    mock_garmin.get_activities_by_date.return_value = [
+        {"activityId": 1, "activityName": "Walk", "activityType": {"typeKey": "walking"},
+         "duration": 1800, "calories": 150, "distance": 2500.0,
+         "startTimeLocal": "2026-03-15 08:30:00"},
+    ]
+    mock_garmin.get_activity.return_value = {"summaryDTO": {"minHR": 90.0}}
+    client._client = mock_garmin
+
+    result = client.get_activities_in_range(date(2026, 1, 1), date(2026, 8, 20))
+    assert result[0]["date"] == date(2026, 3, 15)
+
+
+def test_get_activities_in_range_missing_start_time_date_is_none():
+    from src.garmin.client import GarminClient
+    client = GarminClient("test@example.com", "password")
+    mock_garmin = MagicMock()
+    mock_garmin.get_activities_by_date.return_value = [
+        {"activityId": 1, "activityName": "Walk", "activityType": {"typeKey": "walking"},
+         "duration": 1800, "calories": 150, "distance": 2500.0},
+    ]
+    mock_garmin.get_activity.return_value = {"summaryDTO": {"minHR": 90.0}}
+    client._client = mock_garmin
+
+    result = client.get_activities_in_range(date(2026, 1, 1), date(2026, 8, 20))
+    assert result[0]["date"] is None
+
+
+def test_get_activities_in_range_paces_between_detail_calls():
+    from src.garmin.client import GarminClient
+    client = GarminClient("test@example.com", "password")
+    mock_garmin = MagicMock()
+    mock_garmin.get_activities_by_date.return_value = [
+        {"activityId": 1, "activityName": "Walk", "activityType": {"typeKey": "walking"},
+         "duration": 1800, "calories": 150, "distance": 2500.0},
+        {"activityId": 2, "activityName": "Run", "activityType": {"typeKey": "running"},
+         "duration": 1200, "calories": 200, "distance": 3000.0},
+    ]
+    mock_garmin.get_activity.return_value = {"summaryDTO": {"minHR": 90.0}}
+    client._client = mock_garmin
+
+    with patch("src.garmin.client._time.sleep") as mock_sleep:
+        client.get_activities_in_range(date(2026, 1, 1), date(2026, 8, 20), pace_seconds=0.3)
+
+    assert mock_sleep.call_count == 2
+    mock_sleep.assert_called_with(0.3)
+
+
+def test_get_activities_in_range_zero_pace_skips_sleep():
+    from src.garmin.client import GarminClient
+    client = GarminClient("test@example.com", "password")
+    mock_garmin = MagicMock()
+    mock_garmin.get_activities_by_date.return_value = [
+        {"activityId": 1, "activityName": "Walk", "activityType": {"typeKey": "walking"},
+         "duration": 1800, "calories": 150, "distance": 2500.0},
+    ]
+    mock_garmin.get_activity.return_value = {"summaryDTO": {"minHR": 90.0}}
+    client._client = mock_garmin
+
+    with patch("src.garmin.client._time.sleep") as mock_sleep:
+        client.get_activities_in_range(date(2026, 1, 1), date(2026, 8, 20), pace_seconds=0)
+
+    mock_sleep.assert_not_called()
+
+
+def test_get_activities_in_range_skip_detail_for_avoids_detail_call():
+    """Activities in skip_detail_for should get list-endpoint fields only —
+    no get_activity call, no strength-set call, min_hr left as None."""
+    from src.garmin.client import GarminClient
+    client = GarminClient("test@example.com", "password")
+    mock_garmin = MagicMock()
+    mock_garmin.get_activities_by_date.return_value = [
+        {"activityId": 1, "activityName": "Walk", "activityType": {"typeKey": "walking"},
+         "duration": 1800, "calories": 150, "distance": 2500.0, "averageHR": 110, "maxHR": 138},
+        {"activityId": 7, "activityName": "Gym", "activityType": {"typeKey": "strength_training"},
+         "duration": 2700, "calories": 320, "distance": None},
+    ]
+    mock_garmin.get_activity.return_value = {"summaryDTO": {"minHR": 90.0}}
+    client._client = mock_garmin
+
+    result = client.get_activities_in_range(
+        date(2026, 1, 1), date(2026, 8, 20), skip_detail_for={1, 7}
+    )
+
+    assert result[0]["min_hr"] is None
+    assert result[1]["min_hr"] is None
+    assert "total_sets" not in result[1]
+    mock_garmin.get_activity.assert_not_called()
+    mock_garmin.get_activity_exercise_sets.assert_not_called()
+
+
+def test_get_activities_in_range_skip_detail_for_partial_still_fetches_others():
+    from src.garmin.client import GarminClient
+    client = GarminClient("test@example.com", "password")
+    mock_garmin = MagicMock()
+    mock_garmin.get_activities_by_date.return_value = [
+        {"activityId": 1, "activityName": "Walk", "activityType": {"typeKey": "walking"},
+         "duration": 1800, "calories": 150, "distance": 2500.0},
+        {"activityId": 2, "activityName": "Run", "activityType": {"typeKey": "running"},
+         "duration": 1200, "calories": 200, "distance": 3000.0},
+    ]
+    mock_garmin.get_activity.return_value = {"summaryDTO": {"minHR": 90.0}}
+    client._client = mock_garmin
+
+    result = client.get_activities_in_range(
+        date(2026, 1, 1), date(2026, 8, 20), skip_detail_for={1}
+    )
+
+    assert result[0]["min_hr"] is None
+    assert result[1]["min_hr"] == 90
+    mock_garmin.get_activity.assert_called_once_with(2)
+
+
+def test_get_activities_in_range_skip_detail_for_not_paced():
+    """No sleep should happen for a skipped activity — pacing only guards real detail calls."""
+    from src.garmin.client import GarminClient
+    client = GarminClient("test@example.com", "password")
+    mock_garmin = MagicMock()
+    mock_garmin.get_activities_by_date.return_value = [
+        {"activityId": 1, "activityName": "Walk", "activityType": {"typeKey": "walking"},
+         "duration": 1800, "calories": 150, "distance": 2500.0},
+    ]
+    client._client = mock_garmin
+
+    with patch("src.garmin.client._time.sleep") as mock_sleep:
+        client.get_activities_in_range(
+            date(2026, 1, 1), date(2026, 8, 20), pace_seconds=0.3, skip_detail_for={1}
+        )
+
+    mock_sleep.assert_not_called()
+
+
+def test_get_activities_in_range_empty_response():
+    from src.garmin.client import GarminClient
+    client = GarminClient("test@example.com", "password")
+    mock_garmin = MagicMock()
+    mock_garmin.get_activities_by_date.return_value = []
+    client._client = mock_garmin
+
+    result = client.get_activities_in_range(date(2026, 1, 1), date(2026, 8, 20))
+    assert result == []
+
+
+def test_get_activities_in_range_api_error_returns_empty():
+    from src.garmin.client import GarminClient
+    client = GarminClient("test@example.com", "password")
+    mock_garmin = MagicMock()
+    mock_garmin.get_activities_by_date.side_effect = Exception("API error")
+    client._client = mock_garmin
+
+    result = client.get_activities_in_range(date(2026, 1, 1), date(2026, 8, 20))
+    assert result == []
 
 
 # ------------------------------------------------------------------ #
@@ -502,6 +759,97 @@ def test_save_garmin_activities_round_trips_new_fields(repo):
     assert r["total_reps"] == 210
     assert r["min_weight_kg"] == 20.0
     assert r["max_weight_kg"] == 80.0
+
+
+# ------------------------------------------------------------------ #
+# Repository: min_hr round-trip                                       #
+# ------------------------------------------------------------------ #
+
+def test_upsert_garmin_activity_min_hr_insert(repo):
+    day = date(2026, 2, 25)
+    repo.upsert_garmin_activity(1001, day, "Walk", "walking", 30, 200, None, min_hr=91)
+    acts = repo.get_garmin_activities_for_date(day)
+    assert acts[0].min_hr == 91
+
+
+def test_upsert_garmin_activity_min_hr_update(repo):
+    day = date(2026, 2, 25)
+    repo.upsert_garmin_activity(1001, day, "Walk", "walking", 30, 200, None, min_hr=91)
+    repo.upsert_garmin_activity(1001, day, "Walk", "walking", 30, 200, None, min_hr=85)
+    acts = repo.get_garmin_activities_for_date(day)
+    assert len(acts) == 1
+    assert acts[0].min_hr == 85
+
+
+def test_upsert_garmin_activity_min_hr_defaults_to_none(repo):
+    day = date(2026, 2, 25)
+    repo.upsert_garmin_activity(1001, day, "Walk", "walking", 30, 200, None)
+    acts = repo.get_garmin_activities_for_date(day)
+    assert acts[0].min_hr is None
+
+
+def test_upsert_garmin_activity_min_hr_none_does_not_overwrite_existing_value(repo):
+    """A transient detail-fetch failure (min_hr=None) on a re-sync must not
+    wipe out a previously-known min_hr — it can only ever improve/replace it
+    with a real value, never null one out."""
+    day = date(2026, 2, 25)
+    repo.upsert_garmin_activity(1001, day, "Walk", "walking", 30, 200, None, min_hr=91)
+    repo.upsert_garmin_activity(1001, day, "Walk", "walking", 30, 200, None, min_hr=None)
+    acts = repo.get_garmin_activities_for_date(day)
+    assert acts[0].min_hr == 91
+
+
+def test_upsert_garmin_activity_strength_fields_none_does_not_overwrite_existing(repo):
+    """Same guard as min_hr: a transient exercise-sets fetch failure (fields
+    all None) on a re-sync must not wipe previously-known strength data."""
+    day = date(2026, 2, 25)
+    repo.upsert_garmin_activity(
+        1002, day, "Gym", "strength_training", 45, 300, None,
+        total_sets=5, total_reps=40, min_weight_kg=10.0, max_weight_kg=30.0,
+    )
+    repo.upsert_garmin_activity(
+        1002, day, "Gym", "strength_training", 45, 300, None,
+        total_sets=None, total_reps=None, min_weight_kg=None, max_weight_kg=None,
+    )
+    acts = repo.get_garmin_activities_for_date(day)
+    assert acts[0].total_sets == 5
+    assert acts[0].total_reps == 40
+    assert acts[0].min_weight_kg == 10.0
+    assert acts[0].max_weight_kg == 30.0
+
+
+def test_save_garmin_activities_round_trips_min_hr(repo):
+    today = date.today()
+    acts = [{
+        "activity_id": 43, "name": "Walk", "type_key": "walking",
+        "duration_min": 30, "calories": 200, "distance_km": 2.5,
+        "avg_hr": 120, "max_hr": 143, "min_hr": 91,
+    }]
+    repo.save_garmin_activities(today, acts)
+    rows = repo.get_garmin_activities_for_date(today)
+    assert rows[0].min_hr == 91
+
+
+# ------------------------------------------------------------------ #
+# Migration: min_hr added to a pre-existing garmin_activities table   #
+# ------------------------------------------------------------------ #
+
+def test_migration_adds_min_hr_to_existing_table(db_path):
+    """Simulates a production DB created before min_hr existed."""
+    from sqlalchemy import text
+    r = Repository(db_path)
+    r.init_database()
+    with r._engine.connect() as conn:
+        conn.execute(text("ALTER TABLE garmin_activities DROP COLUMN min_hr"))
+        conn.commit()
+
+    r2 = Repository(db_path)
+    r2.init_database()
+    day = date(2026, 3, 1)
+    r2.upsert_garmin_activity(5001, day, "Walk", "walking", 30, 200, None, min_hr=88)
+    acts = r2.get_garmin_activities_for_date(day)
+    assert acts[0].min_hr == 88
+    r2._engine.dispose()
 
 
 # ------------------------------------------------------------------ #

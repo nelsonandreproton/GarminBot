@@ -98,7 +98,7 @@ class SystemMixin:
 
     @safe_command
     async def _cmd_exportar(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """/exportar [N|refeicoes [formato] [inicio] [fim]] — export Garmin or meal data."""
+        """/exportar [N|refeicoes|treinos [formato] [inicio] [fim]] — export Garmin metrics, meals, or activities."""
         if not self._auth_check(update) or _is_rate_limited(update.effective_chat.id):
             return
         from telegram import Bot, InputFile
@@ -135,6 +135,38 @@ class SystemMixin:
                 chat_id=self._chat_id,
                 document=InputFile(_io.BytesIO(file_bytes), filename=filename),
                 caption=f"🥗 {len(entries)} refeições exportadas ({start.strftime('%d/%m/%Y')} a {end.strftime('%d/%m/%Y')})",
+            )
+            return
+
+        # /exportar treinos [csv|json|xlsx] [YYYY-MM-DD] [YYYY-MM-DD]
+        if args and args[0].lower() == "treinos":
+            try:
+                fmt, start, end = _parse_export_args(args[1:])
+            except ValueError as exc:
+                await update.message.reply_text(f"❌ {exc}")
+                return
+            if fmt == "xlsx":
+                try:
+                    import openpyxl  # noqa: F401
+                except ImportError:
+                    await update.message.reply_text(
+                        "⚠️ Exportação em XLSX não disponível (openpyxl não instalado)."
+                    )
+                    return
+
+            entries = self._repo.get_garmin_activities_range(start, end)
+            if not entries:
+                await update.message.reply_text("Sem dados de treinos para exportar nesse período.")
+                return
+
+            from ..activity_export import build_export
+            file_bytes = build_export(fmt, entries)
+            filename = f"treinos_export_{start}_{end}.{fmt}"
+            bot = Bot(token=self._config.telegram_bot_token)
+            await bot.send_document(
+                chat_id=self._chat_id,
+                document=InputFile(_io.BytesIO(file_bytes), filename=filename),
+                caption=f"🏋️ {len(entries)} treinos exportados ({start.strftime('%d/%m/%Y')} a {end.strftime('%d/%m/%Y')})",
             )
             return
 

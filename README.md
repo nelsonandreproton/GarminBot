@@ -141,6 +141,9 @@ All settings live in `.env`. See `.env.example` for the full list with comments.
 | `/treino` | Generate a workout recommendation for today |
 | `/objetivo` | View or set goals (passos/sono/peso/calorias/proteina/gordura/hidratos) |
 | `/xread <url>` | Analyse a tweet/X post and save insights to Obsidian |
+| `/exportar N` | Export the last N days of Garmin metrics as CSV |
+| `/exportar refeicoes [csv\|json\|xlsx] [início] [fim]` | Export registered meals (incl. FatSecret) for a period, auto-syncing missing FatSecret days first |
+| `/exportar treinos [csv\|json\|xlsx] [início] [fim]` | Export synced Garmin activities (date, type, duration, calories, min/avg/max HR, distance) for a period |
 
 ## Deployment
 
