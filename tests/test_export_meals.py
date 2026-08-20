@@ -132,9 +132,9 @@ def _make_update():
     return update
 
 
-def _make_bot(repo, chat_id):
+def _make_bot(repo, chat_id, fatsecret_client=None):
     cfg = _make_config(telegram_chat_id=str(chat_id))
-    bot = TelegramBot(cfg, repo)
+    bot = TelegramBot(cfg, repo, fatsecret_client=fatsecret_client)
     bot._chat_id = chat_id
     return bot
 
@@ -243,3 +243,94 @@ class TestCmdExportarRefeicoes:
         await bot._cmd_exportar(update, _make_context(["nutricao"]))
         update.message.reply_text.assert_awaited_once()
         assert "Sem dados" in update.message.reply_text.call_args[0][0]
+
+
+# ---------------------------------------------------------------------------
+# FatSecret pre-sync before export
+# ---------------------------------------------------------------------------
+
+class TestSyncMissingFatsecretDays:
+    @pytest.mark.asyncio
+    async def test_no_fatsecret_client_skips_sync_silently(self, repo):
+        update = _make_update()
+        bot = _make_bot(repo, update.effective_chat.id, fatsecret_client=None)
+
+        with patch("telegram.Bot.send_document", new_callable=AsyncMock):
+            await bot._cmd_exportar(
+                update, _make_context(["refeicoes", "csv", "2026-08-01", "2026-08-02"])
+            )
+
+        # Only the "sem dados" reply, no sync-related messages
+        assert update.message.reply_text.await_count == 1
+        assert "Sem dados" in update.message.reply_text.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_fetches_only_missing_days(self, repo):
+        start, end = date(2026, 8, 1), date(2026, 8, 3)
+        # Day 1 already has a manual entry -> not "missing"
+        repo.save_food_entries(start, [
+            {"name": "Ovos", "quantity": 1, "unit": "un", "calories": 100.0, "source": "llm_estimate"},
+        ])
+        fatsecret = MagicMock()
+        fatsecret.get_food_entries.return_value = []
+        update = _make_update()
+        bot = _make_bot(repo, update.effective_chat.id, fatsecret_client=fatsecret)
+
+        with patch("src.nutrition.fatsecret_mapper.map_fatsecret_entries", return_value=[]), \
+             patch("telegram.Bot.send_document", new_callable=AsyncMock):
+            await bot._cmd_exportar(update, _make_context(["refeicoes", "csv", str(start), str(end)]))
+
+        called_days = {call.args[0] for call in fatsecret.get_food_entries.call_args_list}
+        assert called_days == {date(2026, 8, 2), date(2026, 8, 3)}
+
+    @pytest.mark.asyncio
+    async def test_upserts_mapped_entries_for_missing_days(self, repo):
+        start = end = date(2026, 8, 5)
+        mapped = [
+            {"name": "Banana", "calories": 100.0, "protein_g": 1.0, "fat_g": 0.3,
+             "carbs_g": 25.0, "fiber_g": 2.0, "quantity": 1.0, "unit": "serving",
+             "source": "fatsecret", "barcode": "FS001"},
+        ]
+        fatsecret = MagicMock()
+        fatsecret.get_food_entries.return_value = [{"raw": "entry"}]
+        update = _make_update()
+        bot = _make_bot(repo, update.effective_chat.id, fatsecret_client=fatsecret)
+
+        with patch("src.nutrition.fatsecret_mapper.map_fatsecret_entries", return_value=mapped), \
+             patch("telegram.Bot.send_document", new_callable=AsyncMock):
+            await bot._cmd_exportar(update, _make_context(["refeicoes", "csv", str(start), str(end)]))
+
+        entries = repo.get_food_entries(start)
+        assert len(entries) == 1
+        assert entries[0].name == "Banana"
+        assert entries[0].source == "fatsecret"
+
+    @pytest.mark.asyncio
+    async def test_sync_failure_does_not_break_export(self, repo):
+        """A FatSecret error on the missing day is logged and swallowed; export still runs."""
+        start = end = date(2026, 8, 7)
+        fatsecret = MagicMock()
+        fatsecret.get_food_entries.side_effect = RuntimeError("FatSecret down")
+        update = _make_update()
+        bot = _make_bot(repo, update.effective_chat.id, fatsecret_client=fatsecret)
+
+        with patch("telegram.Bot.send_document", new_callable=AsyncMock):
+            await bot._cmd_exportar(update, _make_context(["refeicoes", "csv", str(start), str(end)]))
+
+        # No crash; export just reports no data for that empty day
+        assert any("Sem dados" in c.args[0] for c in update.message.reply_text.call_args_list)
+
+    @pytest.mark.asyncio
+    async def test_sync_progress_message_sent_when_days_missing(self, repo):
+        start = end = date(2026, 8, 8)
+        fatsecret = MagicMock()
+        fatsecret.get_food_entries.return_value = []
+        update = _make_update()
+        bot = _make_bot(repo, update.effective_chat.id, fatsecret_client=fatsecret)
+
+        with patch("src.nutrition.fatsecret_mapper.map_fatsecret_entries", return_value=[]), \
+             patch("telegram.Bot.send_document", new_callable=AsyncMock):
+            await bot._cmd_exportar(update, _make_context(["refeicoes", "csv", str(start), str(end)]))
+
+        messages = [c.args[0] for c in update.message.reply_text.call_args_list]
+        assert any("A sincronizar" in m for m in messages)

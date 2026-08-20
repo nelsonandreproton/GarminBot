@@ -120,6 +120,8 @@ class SystemMixin:
                     )
                     return
 
+            await self._sync_missing_fatsecret_days(start, end, update)
+
             entries = self._repo.get_food_entries_range(start, end)
             if not entries:
                 await update.message.reply_text("Sem dados de refeições para exportar nesse período.")
@@ -165,6 +167,35 @@ class SystemMixin:
             document=InputFile(_io.BytesIO(csv_bytes), filename=filename),
             caption=f"📊 {len(rows)} dias exportados",
         )
+
+    async def _sync_missing_fatsecret_days(self, start: date, end: date, update: Update) -> None:
+        """Fetch and store FatSecret meals for any day in [start, end] not yet in food_entries.
+
+        Best-effort: a failure on one day is logged and skipped, never raised —
+        the export must still proceed with whatever is already in the local table.
+        """
+        if self._fatsecret_client is None:
+            return
+        missing = self._repo.get_food_entry_missing_dates(start, end)
+        if not missing:
+            return
+
+        from ...nutrition.fatsecret_client import _redact
+        from ...nutrition.fatsecret_mapper import map_fatsecret_entries
+
+        await update.message.reply_text(f"⏳ A sincronizar {len(missing)} dia(s) com o FatSecret...")
+        synced = 0
+        for day in missing:
+            try:
+                raw = self._fatsecret_client.get_food_entries(day)
+                mapped = map_fatsecret_entries(raw)
+                if mapped:
+                    self._repo.upsert_fatsecret_entries(day, mapped)
+                    synced += 1
+            except Exception as exc:
+                logger.warning("FatSecret sync failed for %s during export (skipping): %s", day, _redact(exc))
+        if synced:
+            await update.message.reply_text(f"✅ {synced} dia(s) sincronizado(s) com o FatSecret.")
 
     @safe_command
     async def _cmd_backfill(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
