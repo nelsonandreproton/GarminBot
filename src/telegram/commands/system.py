@@ -11,7 +11,7 @@ from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
-from ..helpers import _is_rate_limited, safe_command
+from ..helpers import _is_rate_limited, _parse_export_args, safe_command
 
 logger = logging.getLogger(__name__)
 
@@ -98,34 +98,41 @@ class SystemMixin:
 
     @safe_command
     async def _cmd_exportar(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """/exportar [N|nutricao] — export Garmin or nutrition data as CSV."""
+        """/exportar [N|refeicoes [formato] [inicio] [fim]] — export Garmin or meal data."""
         if not self._auth_check(update) or _is_rate_limited(update.effective_chat.id):
             return
         from telegram import Bot, InputFile
         args = context.args or []
 
-        # /exportar nutricao
-        if args and args[0].lower() == "nutricao":
-            today = date.today()
-            start = today - timedelta(days=90)
-            entries = self._repo.get_food_entries_range(start, today)
-            if not entries:
-                await update.message.reply_text("Sem dados de nutrição para exportar.")
+        # /exportar refeicoes (alias: nutricao) [csv|json|xlsx] [YYYY-MM-DD] [YYYY-MM-DD]
+        if args and args[0].lower() in ("refeicoes", "nutricao"):
+            try:
+                fmt, start, end = _parse_export_args(args[1:])
+            except ValueError as exc:
+                await update.message.reply_text(f"❌ {exc}")
                 return
-            buf = _io.StringIO()
-            writer = csv.writer(buf)
-            writer.writerow(["data", "nome", "quantidade", "unidade", "calorias",
-                             "proteina_g", "gordura_g", "hidratos_g", "fibra_g", "fonte", "barcode"])
-            for e in entries:
-                writer.writerow([e.date, e.name, e.quantity, e.unit, e.calories,
-                                 e.protein_g, e.fat_g, e.carbs_g, e.fiber_g, e.source, e.barcode])
-            filename = f"nutricao_export_{start}_{today}.csv"
-            csv_bytes = buf.getvalue().encode("utf-8")
+            if fmt == "xlsx":
+                try:
+                    import openpyxl  # noqa: F401
+                except ImportError:
+                    await update.message.reply_text(
+                        "⚠️ Exportação em XLSX não disponível (openpyxl não instalado)."
+                    )
+                    return
+
+            entries = self._repo.get_food_entries_range(start, end)
+            if not entries:
+                await update.message.reply_text("Sem dados de refeições para exportar nesse período.")
+                return
+
+            from ..meal_export import build_export
+            file_bytes = build_export(fmt, entries)
+            filename = f"refeicoes_export_{start}_{end}.{fmt}"
             bot = Bot(token=self._config.telegram_bot_token)
             await bot.send_document(
                 chat_id=self._chat_id,
-                document=InputFile(_io.BytesIO(csv_bytes), filename=filename),
-                caption=f"🥗 {len(entries)} registos de nutrição exportados",
+                document=InputFile(_io.BytesIO(file_bytes), filename=filename),
+                caption=f"🥗 {len(entries)} refeições exportadas ({start.strftime('%d/%m/%Y')} a {end.strftime('%d/%m/%Y')})",
             )
             return
 

@@ -72,6 +72,51 @@ def _parse_date_prefix(args: list[str]) -> tuple[date, list[str]]:
     return today, args
 
 
+_EXPORT_FORMATS = {"csv", "json", "xlsx"}
+
+
+def _parse_export_args(args: list[str]) -> tuple[str, date, date]:
+    """Parse `[formato] [inicio] [fim]` args for /exportar refeicoes.
+
+    formato ∈ {csv, json, xlsx} (case-insensitive, default csv).
+    inicio/fim in YYYY-MM-DD format. Missing inicio defaults to 90 days ago;
+    missing fim defaults to today.
+
+    Returns (formato, start_date, end_date). Raises ValueError on invalid input.
+    """
+    today = date.today()
+    tokens = list(args)
+
+    fmt = "csv"
+    if tokens and tokens[0].lower() in _EXPORT_FORMATS:
+        fmt = tokens[0].lower()
+        tokens = tokens[1:]
+
+    def _parse_date(token: str) -> date:
+        try:
+            return date.fromisoformat(token)
+        except ValueError:
+            raise ValueError(f"Data inválida: {token}. Usa o formato YYYY-MM-DD.")
+
+    if not tokens:
+        return fmt, today - timedelta(days=90), today
+    if len(tokens) == 1:
+        start, end = _parse_date(tokens[0]), today
+    elif len(tokens) == 2:
+        start, end = _parse_date(tokens[0]), _parse_date(tokens[1])
+    else:
+        raise ValueError("Demasiados argumentos. Usa: /exportar refeicoes [formato] [inicio] [fim]")
+
+    if start > today:
+        raise ValueError("Não posso exportar datas futuras.")
+    if end > today:
+        end = today
+    if start > end:
+        raise ValueError("A data de início deve ser anterior à data de fim.")
+
+    return fmt, start, end
+
+
 def safe_command(func):
     """Decorator that catches unhandled exceptions in command handlers.
 
