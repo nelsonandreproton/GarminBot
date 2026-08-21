@@ -227,6 +227,13 @@ def format_daily_summary(
         goal_suffix = f" / {goal_ml / 1000:.1f} L" if goal_ml else ""
         lines += ["", f"💧 *Água:* {liters:.1f} L{goal_suffix} ({hydration_ml} ml)"]
 
+    bp_systolic = metrics.get("blood_pressure_systolic")
+    bp_diastolic = metrics.get("blood_pressure_diastolic")
+    if bp_systolic is not None and bp_diastolic is not None:
+        pulse = metrics.get("blood_pressure_pulse")
+        pulse_suffix = f" · {pulse} bpm" if pulse is not None else ""
+        lines += ["", f"🩺 *Tensão arterial:* {bp_systolic}/{bp_diastolic}{pulse_suffix}"]
+
     if alerts:
         lines += ["", "💬 *Alertas:*"] + [f"• {a}" for a in alerts]
 

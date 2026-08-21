@@ -61,6 +61,9 @@ class Repository:
                 "spo2_avg": "REAL",
                 "hydration_ml": "INTEGER",
                 "hydration_goal_ml": "INTEGER",
+                "blood_pressure_systolic": "INTEGER",
+                "blood_pressure_diastolic": "INTEGER",
+                "blood_pressure_pulse": "INTEGER",
             }
             _allowed_col_types = {"INTEGER", "REAL", "TEXT", "BLOB"}
             for col, col_type in new_cols.items():
@@ -146,7 +149,11 @@ class Repository:
             existing = session.query(DailyMetrics).filter_by(date=day).first()
             if existing:
                 for key, value in metrics.items():
-                    if hasattr(existing, key):
+                    # Each field can be sourced from its own independently-failing
+                    # Garmin API call (see get_health_data) — a transient failure
+                    # returns None for just that field, which must never overwrite
+                    # a previously-synced good value. See CLAUDE.md "Upsert gotcha".
+                    if hasattr(existing, key) and value is not None:
                         setattr(existing, key, value)
                 existing.synced_at = datetime.now(UTC)
             else:

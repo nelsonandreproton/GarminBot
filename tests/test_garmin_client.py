@@ -223,6 +223,23 @@ def test_to_metrics_dict_includes_hydration():
     assert d["hydration_goal_ml"] == 2839
 
 
+def test_to_metrics_dict_includes_blood_pressure():
+    from src.garmin.client import DailySummary
+    client = _make_client()
+    summary = DailySummary(
+        date=date(2026, 2, 12),
+        sleep=SleepData(hours=7.5, score=82, quality="Excelente"),
+        activity=ActivityData(steps=10000, active_calories=400, resting_calories=1700),
+        blood_pressure_systolic=118,
+        blood_pressure_diastolic=72,
+        blood_pressure_pulse=60,
+    )
+    d = client.to_metrics_dict(summary)
+    assert d["blood_pressure_systolic"] == 118
+    assert d["blood_pressure_diastolic"] == 72
+    assert d["blood_pressure_pulse"] == 60
+
+
 def test_get_health_data_parses_hydration():
     """Prove-It: get_hydration_data returns valueInML/goalInML as floats
     (e.g. 473.176) — confirmed against production 2026-08-21 response."""
@@ -293,3 +310,160 @@ def test_get_health_data_hydration_api_failure_stays_none():
 
     assert result["hydration_ml"] is None
     assert result["hydration_goal_ml"] is None
+
+
+def _bp_mock(get_blood_pressure_return):
+    mock_garmin = MagicMock()
+    mock_garmin.get_stats.return_value = {}
+    mock_garmin.get_stress_data.return_value = {}
+    mock_garmin.get_body_battery.return_value = []
+    mock_garmin.get_spo2_data.return_value = {}
+    mock_garmin.get_intensity_minutes_data.return_value = {}
+    mock_garmin.get_hydration_data.return_value = {}
+    mock_garmin.get_blood_pressure.return_value = get_blood_pressure_return
+    return mock_garmin
+
+
+def test_get_health_data_parses_single_blood_pressure_reading():
+    """Confirmed against production 2026-08-21: a single-reading day has
+    highSystolic == lowSystolic (numOfMeasurements: 1)."""
+    client = _make_client()
+    client._client = _bp_mock({
+        "measurementSummaries": [{
+            "measurements": [{
+                "systolic": 125,
+                "diastolic": 75,
+                "pulse": 66,
+                "measurementTimestampLocal": "2026-08-21T10:40:36.86",
+            }]
+        }]
+    })
+
+    result = client.get_health_data(date(2026, 8, 21))
+
+    assert result["blood_pressure_systolic"] == 125
+    assert result["blood_pressure_diastolic"] == 75
+    assert result["blood_pressure_pulse"] == 66
+
+
+def test_get_health_data_multiple_readings_uses_latest_not_high():
+    """Prove-It: with two readings the same day, /hoje must show the LATEST
+    one, not the day's high — mirrors the Body Battery high/low bug (project
+    lesson: never take max/min of per-day summary fields as 'the' reading)."""
+    client = _make_client()
+    client._client = _bp_mock({
+        "measurementSummaries": [{
+            "measurements": [
+                {
+                    "systolic": 140,
+                    "diastolic": 90,
+                    "pulse": 80,
+                    "measurementTimestampLocal": "2026-08-21T08:00:00.00",
+                },
+                {
+                    "systolic": 118,
+                    "diastolic": 72,
+                    "pulse": 60,
+                    "measurementTimestampLocal": "2026-08-21T20:00:00.00",
+                },
+            ]
+        }]
+    })
+
+    result = client.get_health_data(date(2026, 8, 21))
+
+    assert result["blood_pressure_systolic"] == 118
+    assert result["blood_pressure_diastolic"] == 72
+    assert result["blood_pressure_pulse"] == 60
+
+
+def test_get_health_data_no_blood_pressure_measurement_stays_none():
+    """Confirmed against production: a day with no BP entry returns an empty
+    measurementSummaries list (not a missing key or null)."""
+    client = _make_client()
+    client._client = _bp_mock({
+        "from": "2026-08-16",
+        "until": "2026-08-16",
+        "measurementSummaries": [],
+        "categoryStats": None,
+    })
+
+    result = client.get_health_data(date(2026, 8, 16))
+
+    assert result["blood_pressure_systolic"] is None
+    assert result["blood_pressure_diastolic"] is None
+    assert result["blood_pressure_pulse"] is None
+
+
+def test_get_health_data_coerces_blood_pressure_to_int():
+    """Garmin's health APIs aren't reliably integer-typed even for whole-number
+    values (hydration returns 473.176 in production) — guard against the same
+    happening here; the DB column is Integer."""
+    client = _make_client()
+    client._client = _bp_mock({
+        "measurementSummaries": [{
+            "measurements": [{
+                "systolic": 118.0,
+                "diastolic": 72.0,
+                "pulse": 60.0,
+                "measurementTimestampLocal": "2026-08-21T10:40:36.86",
+            }]
+        }]
+    })
+
+    result = client.get_health_data(date(2026, 8, 21))
+
+    assert result["blood_pressure_systolic"] == 118
+    assert isinstance(result["blood_pressure_systolic"], int)
+    assert result["blood_pressure_diastolic"] == 72
+    assert result["blood_pressure_pulse"] == 60
+
+
+def test_get_health_data_flattens_measurements_across_multiple_summaries():
+    """If Garmin ever groups measurementSummaries into more than one entry for
+    a single-day query, the latest reading must still be found across all of
+    them, not just summaries[0]."""
+    client = _make_client()
+    client._client = _bp_mock({
+        "measurementSummaries": [
+            {
+                "measurements": [{
+                    "systolic": 140,
+                    "diastolic": 90,
+                    "pulse": 80,
+                    "measurementTimestampLocal": "2026-08-21T08:00:00.00",
+                }]
+            },
+            {
+                "measurements": [{
+                    "systolic": 118,
+                    "diastolic": 72,
+                    "pulse": 60,
+                    "measurementTimestampLocal": "2026-08-21T20:00:00.00",
+                }]
+            },
+        ]
+    })
+
+    result = client.get_health_data(date(2026, 8, 21))
+
+    assert result["blood_pressure_systolic"] == 118
+
+
+def test_get_health_data_blood_pressure_api_failure_stays_none():
+    client = _make_client()
+    mock_garmin = MagicMock()
+    mock_garmin.get_stats.return_value = {}
+    mock_garmin.get_stress_data.return_value = {}
+    mock_garmin.get_body_battery.return_value = []
+    mock_garmin.get_spo2_data.return_value = {}
+    mock_garmin.get_intensity_minutes_data.return_value = {}
+    mock_garmin.get_hydration_data.return_value = {}
+    mock_garmin.get_blood_pressure.side_effect = Exception("API error")
+    client._client = mock_garmin
+
+    result = client.get_health_data(date(2026, 8, 21))
+
+    assert result["blood_pressure_systolic"] is None
+    assert result["blood_pressure_diastolic"] is None
+    assert result["blood_pressure_pulse"] is None

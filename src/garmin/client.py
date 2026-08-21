@@ -90,6 +90,9 @@ class DailySummary:
     weight_kg: float | None = None
     hydration_ml: int | None = None
     hydration_goal_ml: int | None = None
+    blood_pressure_systolic: int | None = None
+    blood_pressure_diastolic: int | None = None
+    blood_pressure_pulse: int | None = None
 
 
 def _assess_sleep_quality(score: int | None) -> str | None:
@@ -286,10 +289,13 @@ class GarminClient:
         )
 
     def get_health_data(self, day: date) -> dict:
-        """Fetch resting HR, stress, body battery, SpO2, and intensity minutes.
+        """Fetch resting HR, stress, body battery, SpO2, intensity minutes,
+        hydration, and blood pressure.
 
         Returns a dict with keys: resting_heart_rate, avg_stress, body_battery_high,
-        body_battery_low, spo2_avg, intensity_moderate_min, intensity_vigorous_min.
+        body_battery_low, spo2_avg, intensity_moderate_min, intensity_vigorous_min,
+        hydration_ml, hydration_goal_ml, blood_pressure_systolic,
+        blood_pressure_diastolic, blood_pressure_pulse.
         Any value may be None. Never raises — fails silently.
         """
         client = self._ensure_authenticated()
@@ -304,6 +310,9 @@ class GarminClient:
             "intensity_vigorous_min": None,
             "hydration_ml": None,
             "hydration_goal_ml": None,
+            "blood_pressure_systolic": None,
+            "blood_pressure_diastolic": None,
+            "blood_pressure_pulse": None,
         }
         try:
             stats = client.get_stats(date_str)
@@ -375,6 +384,39 @@ class GarminClient:
                 self._handle_rate_limit()
                 raise
             logger.debug("Could not fetch hydration for %s: %s", date_str, exc)
+        try:
+            bp = client.get_blood_pressure(date_str)
+            if bp and isinstance(bp, dict):
+                summaries = bp.get("measurementSummaries")
+                if summaries and isinstance(summaries, list):
+                    measurements = [
+                        m for s in summaries for m in (s.get("measurements") or [])
+                    ]
+                    # A day can have multiple readings; the summary's high/low
+                    # fields are a range, not "the" reading (same trap as the
+                    # Body Battery high/low bug) — always show the LATEST
+                    # measurement, not a max/min. Fall back to the last entry
+                    # if none carry a timestamp, so a real reading is never
+                    # silently dropped.
+                    timed = [m for m in measurements if m.get("measurementTimestampLocal")]
+                    if timed:
+                        latest = max(timed, key=lambda m: m["measurementTimestampLocal"])
+                    elif measurements:
+                        latest = measurements[-1]
+                    else:
+                        latest = None
+                    if latest is not None:
+                        systolic = latest.get("systolic")
+                        diastolic = latest.get("diastolic")
+                        pulse = latest.get("pulse")
+                        result["blood_pressure_systolic"] = int(systolic) if systolic is not None else None
+                        result["blood_pressure_diastolic"] = int(diastolic) if diastolic is not None else None
+                        result["blood_pressure_pulse"] = int(pulse) if pulse is not None else None
+        except Exception as exc:
+            if _is_rate_limit(exc):
+                self._handle_rate_limit()
+                raise
+            logger.debug("Could not fetch blood pressure for %s: %s", date_str, exc)
         return result
 
     def get_weight_data(self, day: date) -> float | None:
@@ -745,5 +787,8 @@ class GarminClient:
             "weight_kg": summary.weight_kg,
             "hydration_ml": summary.hydration_ml,
             "hydration_goal_ml": summary.hydration_goal_ml,
+            "blood_pressure_systolic": summary.blood_pressure_systolic,
+            "blood_pressure_diastolic": summary.blood_pressure_diastolic,
+            "blood_pressure_pulse": summary.blood_pressure_pulse,
             "garmin_sync_success": has_data,
         }

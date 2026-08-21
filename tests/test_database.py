@@ -52,6 +52,39 @@ def test_upsert_updates_existing(repo):
     assert row.steps == 9999
 
 
+def test_upsert_does_not_null_out_field_on_later_transient_failure(repo):
+    """Prove-It: each daily_metrics field can come from its own independently-
+    failing Garmin API call (see get_health_data). A transient failure on a
+    later re-sync must not overwrite a previously-synced good value with None
+    — see CLAUDE.md 'Upsert gotcha: fields from separate API calls need
+    independent None-guards'."""
+    day = date(2026, 2, 13)
+    repo.save_daily_metrics(day, {
+        "steps": 5000,
+        "hydration_ml": 473,
+        "blood_pressure_systolic": 118,
+        "blood_pressure_diastolic": 72,
+        "blood_pressure_pulse": 60,
+        "garmin_sync_success": True,
+    })
+    # Re-sync where the hydration/blood-pressure API calls failed this time
+    # (get_health_data returns None for those keys on failure, not omits them).
+    repo.save_daily_metrics(day, {
+        "steps": 5100,
+        "hydration_ml": None,
+        "blood_pressure_systolic": None,
+        "blood_pressure_diastolic": None,
+        "blood_pressure_pulse": None,
+        "garmin_sync_success": True,
+    })
+    row = repo.get_metrics_by_date(day)
+    assert row.steps == 5100
+    assert row.hydration_ml == 473
+    assert row.blood_pressure_systolic == 118
+    assert row.blood_pressure_diastolic == 72
+    assert row.blood_pressure_pulse == 60
+
+
 def test_get_metrics_range(repo):
     for i in range(7):
         day = date(2026, 2, 7) + timedelta(days=i)
