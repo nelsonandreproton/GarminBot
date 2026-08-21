@@ -9,13 +9,12 @@ A Python bot that syncs Garmin Connect data daily and sends formatted health sum
 - **Weekly report** — every Sunday: 7-day stats, a bar chart, and smart insights
 - **Monthly stats** — via `/mes` command
 - **Nutrition tracking (FatSecret)** — log food in the [FatSecret](https://www.fatsecret.com/) app; the bot reads your diary (calories + macros) via the FatSecret Platform API and folds it into the daily summary
-- **Manual nutrition fallback** — `/comi` still logs food via text or barcode photo with Groq LLM parsing (optional, free tier) when you forget to log in the app
 - **Intraday deficit control** — `/hoje` shows current Garmin burn, calories eaten (+ macros), current deficit %, and how many kcal you have left (or exceeded) to end the day at a 30% deficit, so you can decide what to eat for the rest of the day
 - **Macro goals** — set daily targets for calories, protein, fat, and carbs; see remaining macros after each meal
 - **Nutrition recommendations** — LLM-generated daily advice based on yesterday's intake vs goals and Garmin data
 - **Workout recommendations** — daily gym workout based on sleep, nutrition, equipment, and movement patterns (Squat/Push/Pull/Hinge/Carry)
 - **Tweet/X analyser** — `/xread <url>` fetches a tweet, generates personalised takeaways via Groq, and saves a note to the Obsidian vault (optional)
-- **All commands in Portuguese** — `/hoje`, `/ontem`, `/semana`, `/mes`, `/sync`, `/status`, `/comi`, `/nutricao`, `/treino`
+- **All commands in Portuguese** — `/hoje`, `/ontem`, `/semana`, `/mes`, `/sync`, `/status`, `/nutricao`, `/treino`
 - **Robust error handling** — retries with exponential backoff, partial data support, Telegram error alerts
 - **Token persistence** — Garmin OAuth2 token saved to disk, reused across restarts
 - **Automatic backups** — weekly SQLite backup with 7-copy retention
@@ -96,7 +95,7 @@ Log your food in the FatSecret app and let the bot read it automatically. This i
    ```
    The token is saved to `data/fatsecret_token.json` (gitignored, chmod 600). The bot reuses it on every run — no further authorization needed.
 
-The morning sync then pulls yesterday's FatSecret diary alongside Garmin data, and `/hoje` reads today's diary live for the intraday deficit budget. If the credentials or token are absent, FatSecret sync is silently skipped (the bot still works with manual `/comi` logging).
+The morning sync then pulls yesterday's FatSecret diary alongside Garmin data, and `/hoje` reads today's diary live for the intraday deficit budget. If the credentials or token are absent, FatSecret sync is silently skipped (nutrition data simply won't be available until it's configured).
 
 ## Configuration
 
@@ -116,7 +115,7 @@ All settings live in `.env`. See `.env.example` for the full list with comments.
 | `TIMEZONE` | `Europe/Lisbon` | Timezone for scheduling |
 | `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR` |
 | `LOG_FILE` | `./logs/bot.log` | Log file path |
-| `GROQ_API_KEY` | — | Groq API key (optional, enables `/comi`, `/nutricao`, `/treino`, `/xread`) |
+| `GROQ_API_KEY` | — | Groq API key (optional, enables nutrition recommendations, `/treino`, `/xread`) |
 | `FATSECRET_CONSUMER_KEY` | — | FatSecret OAuth1 consumer key (optional, enables FatSecret diary sync) |
 | `FATSECRET_CONSUMER_SECRET` | — | FatSecret OAuth1 consumer secret (optional) |
 | `GYM_EQUIPMENT` | — | Equipment list (optional, enables workout recommendations) |
@@ -135,8 +134,7 @@ All settings live in `.env`. See `.env.example` for the full list with comments.
 | `/mes` | Last 30 days averages |
 | `/sync` | Force an immediate Garmin sync |
 | `/status` | Bot status, last sync time, recent errors, next jobs |
-| `/comi` | Register food eaten (text or barcode photo) |
-| `/nutricao` | Daily nutrition summary |
+| `/nutricao` | Daily nutrition summary (from FatSecret sync) |
 | `/apagar` | Delete last food entry |
 | `/treino` | Generate a workout recommendation for today |
 | `/objetivo` | View or set goals (passos/sono/peso/calorias/proteina/gordura/hidratos) |
@@ -246,10 +244,6 @@ GarminBot/
 │   │   ├── models.py        # SQLAlchemy ORM models
 │   │   └── repository.py    # All read/write operations
 │   ├── nutrition/
-│   │   ├── parser.py            # Groq LLM: text → structured food items
-│   │   ├── service.py           # Orchestrates parse → lookup → fallback
-│   │   ├── openfoodfacts.py     # OpenFoodFacts API client
-│   │   ├── barcode.py           # Barcode decoding from photos
 │   │   ├── fatsecret_client.py  # FatSecret Platform API (OAuth1) diary reader
 │   │   └── fatsecret_mapper.py  # FatSecret entry → FoodEntry mapping
 │   ├── training/

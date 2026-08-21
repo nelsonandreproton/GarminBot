@@ -8,7 +8,6 @@ from src.telegram.formatters import (
     calculate_deficit,
     format_daily_summary,
     format_error_message,
-    format_food_confirmation,
     format_goals,
     format_monthly_report,
     format_nutrition_day,
@@ -226,22 +225,6 @@ def test_format_nutrition_summary_with_deficit():
     assert "Nutrição" in text
     assert "1850 kcal" in text
     assert "Défice" in text
-
-
-def test_format_food_confirmation():
-    from src.nutrition.service import FoodItemResult
-    items = [
-        FoodItemResult(name="ovo", quantity=2, unit="un",
-                       calories=140.0, protein_g=12.0, fat_g=10.0, carbs_g=1.0, fiber_g=0.0,
-                       source="openfoodfacts"),
-        FoodItemResult(name="arroz cozido", quantity=150, unit="g",
-                       calories=195.0, protein_g=4.0, fat_g=0.5, carbs_g=42.0, fiber_g=1.0,
-                       source="openfoodfacts"),
-    ]
-    text = format_food_confirmation(items)
-    assert "Registar refeição" in text
-    assert "Ovo" in text
-    assert "335 kcal" in text  # 140 + 195
 
 
 def test_format_daily_summary_with_nutrition():

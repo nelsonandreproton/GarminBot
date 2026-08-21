@@ -386,12 +386,8 @@ def format_help_message() -> str:
         "/objetivo métrica valor — Ver ou definir objetivos (passos/sono/peso/calorias/proteina/gordura/hidratos)\n"
         "/peso [valor] — Ver ou registar peso\n"
         "/status — Estado do bot\n"
-        "/comi texto — Registar refeição (ou nome de um preset)\n"
-        "/nutricao — Resumo nutricional do dia\n"
+        "/nutricao — Resumo nutricional do dia (dados sincronizados do FatSecret)\n"
         "/apagar — Apagar último alimento registado\n"
-        "/preset create nome — Criar preset de refeição (interativo)\n"
-        "/preset list — Listar presets guardados\n"
-        "/preset delete nome — Apagar preset\n"
         "/ajuda — Esta mensagem"
     )
 
@@ -686,50 +682,6 @@ def format_training_progression(exercise: str, entries: list[dict]) -> str:
     return "\n".join(lines).rstrip()
 
 
-def format_food_confirmation(items: list[Any]) -> str:
-    """Format a food item list as a Telegram confirmation message.
-
-    Args:
-        items: List of FoodItemResult objects.
-
-    Returns:
-        Markdown-formatted confirmation string with inline keyboard hint.
-    """
-    lines = ["📝 *Registar refeição:*", ""]
-    total_cal = 0.0
-    total_prot = 0.0
-    total_fat = 0.0
-    total_carbs = 0.0
-    total_fiber = 0.0
-
-    for i, item in enumerate(items, 1):
-        qty_str = f"{int(item.quantity)}" if item.unit == "un" else f"{item.quantity:g}{item.unit}"
-        cal = item.calories or 0.0
-        prot = item.protein_g or 0.0
-        fat = item.fat_g or 0.0
-        carbs = item.carbs_g or 0.0
-        fiber = item.fiber_g or 0.0
-        total_cal += cal
-        total_prot += prot
-        total_fat += fat
-        total_carbs += carbs
-        total_fiber += fiber
-
-        source_tag = {
-            "llm_estimate": " _(estimativa IA)_",
-            "usda": " _(USDA)_",
-            "api_ninjas": " _(API-Ninjas)_",
-        }.get(item.source, "")
-        lines.append(f"{i}. {item.name.title()} ({qty_str}){source_tag}")
-        lines.append(f"   {int(cal)} kcal | P: {int(prot)}g | G: {int(fat)}g | HC: {int(carbs)}g | F: {int(fiber)}g")
-
-    lines += [
-        "",
-        f"*Total: {int(total_cal)} kcal | P: {int(total_prot)}g | G: {int(total_fat)}g | HC: {int(total_carbs)}g | F: {int(total_fiber)}g*",
-    ]
-    return "\n".join(lines)
-
-
 def format_nutrition_day(entries: list[Any], nutrition_totals: dict[str, Any],
                           garmin_metrics: Any | None = None) -> str:
     """Format full day nutrition view for /nutricao command.
@@ -756,7 +708,7 @@ def format_nutrition_day(entries: list[Any], nutrition_totals: dict[str, Any],
             lines.append(f"• {time_str} — {e.name.title()} ({qty_str}) — {cal} kcal")
     else:
         lines.append("_Sem refeições registadas hoje._")
-        lines.append("Usa /comi para registar.")
+        lines.append("Usa /sync para sincronizar as refeições do FatSecret.")
         return "\n".join(lines)
 
     cal = nutrition_totals.get("calories") or 0.0
@@ -827,163 +779,6 @@ def format_goals(goals: dict[str, float]) -> str:
         lines += ["", "🍽 *Nutrição:*"] + macro_lines
 
     return "\n".join(lines)
-
-
-def format_meal_preset_confirmation(preset_name: str, items: list[Any], *, multiplier: float = 1.0) -> str:
-    """Format a meal preset as a confirmation message (same style as food confirmation).
-
-    Args:
-        preset_name: The preset name (e.g. "Lanche").
-        items: List of MealPresetItem ORM objects (or any object with the same attrs).
-        multiplier: Scale factor for all nutritional values (default 1.0).
-
-    Returns:
-        Markdown-formatted confirmation string.
-    """
-    mult_label = f" ×{multiplier:g}" if multiplier != 1.0 else ""
-    lines = [f"📝 *Registar preset \"{preset_name}\"{mult_label}:*", ""]
-    total_cal = 0.0
-    total_prot = 0.0
-    total_fat = 0.0
-    total_carbs = 0.0
-    total_fiber = 0.0
-
-    for i, item in enumerate(items, 1):
-        qty = (item.quantity or 1.0) * multiplier
-        qty_str = f"{qty:g}" if item.unit == "un" else f"{qty:g}{item.unit}"
-        cal = (item.calories or 0.0) * multiplier
-        prot = (item.protein_g or 0.0) * multiplier
-        fat = (item.fat_g or 0.0) * multiplier
-        carbs = (item.carbs_g or 0.0) * multiplier
-        fiber = (item.fiber_g or 0.0) * multiplier
-        total_cal += cal
-        total_prot += prot
-        total_fat += fat
-        total_carbs += carbs
-        total_fiber += fiber
-        lines.append(f"{i}. {item.name.title()} ({qty_str})")
-        lines.append(f"   {int(cal)} kcal | P: {int(prot)}g | G: {int(fat)}g | HC: {int(carbs)}g | F: {int(fiber)}g")
-
-    lines += [
-        "",
-        f"*Total: {int(total_cal)} kcal | P: {int(total_prot)}g | G: {int(total_fat)}g | HC: {int(total_carbs)}g | F: {int(total_fiber)}g*",
-    ]
-    return "\n".join(lines)
-
-
-def format_meal_presets_list(presets: list[Any]) -> str:
-    """Format the list of saved meal presets for /preset list.
-
-    Args:
-        presets: List of MealPreset ORM objects (with .name and .items loaded).
-
-    Returns:
-        Markdown-formatted string.
-    """
-    if not presets:
-        return "📋 *Presets de refeição*\n\nSem presets guardados.\nUsa `/preset create <nome>` para criar um."
-
-    lines = ["📋 *Presets de refeição:*", ""]
-    for preset in presets:
-        total_cal = sum((i.calories or 0) for i in preset.items)
-        total_prot = sum((i.protein_g or 0) for i in preset.items)
-        item_count = len(preset.items)
-        lines.append(f"• *{preset.name}* — {item_count} item(s) | {int(total_cal)} kcal | P: {int(total_prot)}g")
-
-    lines += ["", "_Usa /comi <nome> para registar um preset._"]
-    lines.append("_Usa /preset delete <nome> para apagar._")
-    return "\n".join(lines)
-
-
-# Accepted suffixes for each macro field (case-insensitive)
-_MACRO_PATTERNS = {
-    "calories": ["cal", "kcal"],
-    "protein_g": ["p", "prot", "proteina", "proteína"],
-    "fat_g": ["g", "gord", "gordura"],
-    "carbs_g": ["hc", "hidratos", "carbs", "c"],
-    "fiber_g": ["f", "fibra", "fib"],
-}
-
-
-def parse_preset_item_line(line: str) -> dict | None:
-    """Parse a single preset item line entered by the user.
-
-    Accepted format:
-        <qty> <name>: <value><suffix> <value><suffix> ...
-
-    Suffixes (case-insensitive):
-        calories  — cal, kcal
-        protein_g — p, prot, proteína
-        fat_g     — g, gord, gordura
-        carbs_g   — hc, hidratos, carbs, c
-        fiber_g   — f, fibra, fib
-
-    Examples:
-        "1 Pudim Proteína: 148cal 19p 3g 10hc 1f"
-        "2 Babybell Light: 100kcal 12p 6g 0hc 0f"
-        "1 Banana: 90cal 1p 0g 20hc 2f"
-
-    Returns:
-        Dict with keys name, quantity, unit, calories, protein_g, fat_g,
-        carbs_g, fiber_g — or None if the line cannot be parsed.
-    """
-    import re
-    line = line.strip()
-    if not line:
-        return None
-
-    # Split on first colon: "<qty> <name>" : "<macros>"
-    if ":" not in line:
-        return None
-    left, right = line.split(":", 1)
-
-    # Parse qty + name from the left part
-    left = left.strip()
-    qty_match = re.match(r"^(\d+(?:[.,]\d+)?)\s+(.+)$", left)
-    if qty_match:
-        qty = float(qty_match.group(1).replace(",", "."))
-        name = qty_match.group(2).strip()
-    else:
-        qty = 1.0
-        name = left
-
-    if not name:
-        return None
-
-    # Build a flat list of all suffix→field mappings (longest first to avoid
-    # "kcal" being matched as "c" from carbs_g)
-    suffix_map: list[tuple[str, str]] = []
-    for field, suffixes in _MACRO_PATTERNS.items():
-        for s in suffixes:
-            suffix_map.append((s, field))
-    suffix_map.sort(key=lambda x: len(x[0]), reverse=True)
-
-    # Extract macro values from the right part
-    macros: dict[str, float] = {}
-    right = right.strip()
-    # Find all "<number><suffix>" tokens (number may have decimal)
-    tokens = re.findall(r"(\d+(?:[.,]\d+)?)\s*([a-záàâãéêíóôõúüçñ]+)", right, re.IGNORECASE)
-    for num_str, suffix_raw in tokens:
-        suffix = suffix_raw.lower()
-        for pattern, field in suffix_map:
-            if suffix == pattern:
-                macros[field] = float(num_str.replace(",", "."))
-                break
-
-    # Require at least calories to be present
-    if "calories" not in macros:
-        return None
-
-    return {
-        "name": name,
-        "quantity": qty,
-        "unit": "un",
-        "calories": macros.get("calories"),
-        "protein_g": macros.get("protein_g"),
-        "fat_g": macros.get("fat_g"),
-        "carbs_g": macros.get("carbs_g"),
-        "fiber_g": macros.get("fiber_g"),
-    }
 
 
 def format_remaining_macros(

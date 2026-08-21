@@ -16,11 +16,8 @@ from telegram.constants import ParseMode
 from telegram.error import TelegramError
 from telegram.ext import (
     Application,
-    CallbackQueryHandler,
     CommandHandler,
-    ConversationHandler,
     ContextTypes,
-    MessageHandler,
     filters,
 )
 from telegram.warnings import PTBUserWarning
@@ -43,11 +40,6 @@ from .commands import (
     SystemMixin,
     TrainingMixin,
     XreadMixin,
-    _AWAITING_BARCODE_QUANTITY,
-    _AWAITING_CONFIRMATION,
-    _AWAITING_EAN_FALLBACK_NAME,
-    _AWAITING_EAN_FALLBACK_QUANTITY,
-    _AWAITING_PRESET_ITEMS,
 )
 
 logger = logging.getLogger(__name__)
@@ -63,7 +55,7 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
     Command implementations are split across mixin classes:
       - HealthMixin  → /hoje /ontem /semana /mes /historico
       - BodyMixin    → /peso /sync_peso /barriga /agua /objetivo
-      - NutritionMixin → /comi /nutricao /apagar /preset (+ conversation)
+      - NutritionMixin → /nutricao /apagar
       - TrainingMixin → /treinei /progresso /equipamento /sync_treino /sync_atividades
       - SystemMixin  → /sync /status /ajuda /exportar /backfill
       - XreadMixin   → /xread
@@ -90,15 +82,6 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
         self._newsletter_bulk: Callable | None = None   # Set by main.py if newsletter enabled
         self._xread_callback: Callable | None = None    # Set by main.py if xread enabled
         self._app: Application | None = None
-        # NutritionService (lazy init — only if GROQ_API_KEY is set)
-        self._nutrition_service = None
-        if config.groq_api_key:
-            from ..nutrition.service import NutritionService
-            self._nutrition_service = NutritionService(
-                config.groq_api_key,
-                usda_api_key=config.usda_api_key,
-                api_ninjas_key=config.api_ninjas_key,
-            )
 
     # ------------------------------------------------------------------ #
     # Sending                                                               #
@@ -143,12 +126,7 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
             from ..utils.insights import generate_daily_alerts
             goals = self._repo.get_goals()
             recent_rows = self._repo.get_metrics_range(day - timedelta(days=6), day)
-            alerts = generate_daily_alerts(metrics, recent_rows, goals)
-        # Inject daily water total if not already set
-        if "water_ml" not in metrics:
-            water = self._repo.get_daily_water(day)
-            if water > 0:
-                metrics["water_ml"] = water
+            alerts = generate_daily_alerts(metrics, recent_rows, goals, is_live_day=show_budget)
         text = format_daily_summary(
             metrics,
             weekly_stats=weekly,
@@ -265,40 +243,6 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
         app.add_handler(_cmd("progresso", self._cmd_progresso))
         app.add_handler(_cmd("sync_atividades", self._cmd_sync_atividades))
 
-        # Nutrition conversation (text entry + barcode + meal presets)
-        conv = ConversationHandler(
-            entry_points=[
-                CommandHandler("comi", self._cmd_comi, filters=chat_filter),
-                CommandHandler("preset", self._cmd_preset, filters=chat_filter),
-                MessageHandler(filters.PHOTO & chat_filter, self._handle_photo),
-            ],
-            states={
-                _AWAITING_CONFIRMATION: [
-                    CallbackQueryHandler(self._confirm_food, pattern="^food_confirm$"),
-                    CallbackQueryHandler(self._confirm_preset, pattern="^preset_confirm$"),
-                    CallbackQueryHandler(self._cancel_food, pattern="^food_cancel$"),
-                ],
-                _AWAITING_BARCODE_QUANTITY: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND & chat_filter, self._handle_barcode_quantity),
-                ],
-                _AWAITING_EAN_FALLBACK_NAME: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND & chat_filter, self._handle_ean_fallback_name),
-                ],
-                _AWAITING_EAN_FALLBACK_QUANTITY: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND & chat_filter, self._handle_ean_fallback_quantity),
-                ],
-                _AWAITING_PRESET_ITEMS: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND & chat_filter, self._handle_preset_item),
-                    CommandHandler("done", self._cmd_preset_done, filters=chat_filter),
-                    CallbackQueryHandler(self._save_preset, pattern="^preset_save$"),
-                    CallbackQueryHandler(self._cancel_food, pattern="^food_cancel$"),
-                ],
-            },
-            fallbacks=[CommandHandler("cancelar", self._cancel_food, filters=chat_filter)],
-            conversation_timeout=600,
-        )
-        app.add_handler(conv)
-
         self._app = app
         return app
 
@@ -317,7 +261,6 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
                 BotCommand("barriga", "Ver ou registar perímetro abdominal (ex: /barriga 95.5)"),
                 BotCommand("canticos", "Cânticos do Caminho (ex: /canticos João 3:16)"),
                 BotCommand("canticos_paroquia", "Cânticos da Paróquia (ex: /canticos_paroquia João 3:16)"),
-                BotCommand("comi", "Registar alimento ou preset (ex: /comi Lanche)"),
                 BotCommand("container_disk", "Uso de disco por container Docker"),
                 BotCommand("equipamento", "Ver ou configurar equipamento de ginásio"),
                 BotCommand("exportar", "Exportar dados (Garmin em CSV, ou refeicoes csv/json/xlsx num período)"),
@@ -328,7 +271,6 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
                 BotCommand("objetivo", "Ver ou definir objetivos"),
                 BotCommand("ontem", "Resumo de ontem"),
                 BotCommand("peso", "Ver ou registar peso (ex: /peso 78.5)"),
-                BotCommand("preset", "Gerir presets de refeição (create/list/delete)"),
                 BotCommand("progresso", "Ver histórico de exercício (ex: /progresso bench press)"),
                 BotCommand("pump", "Ver insights do artigo de hoje do The Pump"),
                 BotCommand("semana", "Relatório semanal"),

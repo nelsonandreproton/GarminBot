@@ -33,8 +33,6 @@ class Config:
     health_port: int | None
     daily_alerts: bool
     groq_api_key: str | None
-    usda_api_key: str | None
-    api_ninjas_key: str | None
     wake_detection: bool
     wake_check_interval_minutes: int
     wake_check_start: str
@@ -111,14 +109,8 @@ def load_config() -> Config:
     # SYNC_RETRY_DELAY_MINUTES: default 30
     sync_retry_delay_minutes = int(os.getenv("SYNC_RETRY_DELAY_MINUTES", "30"))
 
-    # GROQ_API_KEY: optional — nutrition features disabled if absent
+    # GROQ_API_KEY: optional — newsletter analysis, /treino, and /xread disabled if absent
     groq_api_key = os.getenv("GROQ_API_KEY") or None
-
-    # USDA_API_KEY: optional — fallback nutrition lookup for generic ingredients
-    usda_api_key = os.getenv("USDA_API_KEY") or None
-
-    # API_NINJAS_KEY: optional — second fallback nutrition lookup
-    api_ninjas_key = os.getenv("API_NINJAS_KEY") or None
 
     # Wake detection: poll Garmin for sleep data instead of fixed report time
     wake_detection_raw = os.getenv("WAKE_DETECTION", "true")
@@ -161,8 +153,6 @@ def load_config() -> Config:
         health_port=health_port,
         daily_alerts=daily_alerts,
         groq_api_key=groq_api_key,
-        usda_api_key=usda_api_key,
-        api_ninjas_key=api_ninjas_key,
         wake_detection=wake_detection,
         wake_check_interval_minutes=wake_check_interval_minutes,
         wake_check_start=wake_check_start,

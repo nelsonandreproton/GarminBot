@@ -30,8 +30,6 @@ def _make_config(**overrides):
         "log_file": None,
         "daily_alerts": False,
         "groq_api_key": None,
-        "usda_api_key": None,
-        "api_ninjas_key": None,
         "fatsecret_consumer_key": None,
         "fatsecret_consumer_secret": None,
         "garmin_api_port": None,

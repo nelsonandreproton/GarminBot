@@ -10,7 +10,7 @@ from typing import Any, Generator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from .models import Base, DailyMetrics, FoodCache, FoodEntry, GarminActivity, MealPreset, MealPresetItem, NewsletterInsight, NewsletterPost, SyncLog, TrainingEntry, UserGoal, UserSetting, WaistEntry, WaterEntry
+from .models import Base, DailyMetrics, FoodEntry, GarminActivity, NewsletterInsight, NewsletterPost, SyncLog, TrainingEntry, UserGoal, UserSetting, WaistEntry, WaterEntry
 
 logger = logging.getLogger(__name__)
 
@@ -73,14 +73,7 @@ class Repository:
             if "food_entries" not in inspector.get_table_names():
                 FoodEntry.__table__.create(self._engine)
                 logger.info("Migration: created table food_entries")
-            # Create meal preset tables if missing
             table_names = inspector.get_table_names()
-            if "meal_presets" not in table_names:
-                MealPreset.__table__.create(self._engine)
-                logger.info("Migration: created table meal_presets")
-            if "meal_preset_items" not in table_names:
-                MealPresetItem.__table__.create(self._engine)
-                logger.info("Migration: created table meal_preset_items")
             if "user_settings" not in table_names:
                 UserSetting.__table__.create(self._engine)
                 logger.info("Migration: created table user_settings")
@@ -111,9 +104,6 @@ class Repository:
                         conn.execute(text(f"ALTER TABLE garmin_activities ADD COLUMN {col} {col_type}"))
                         logger.info("Migration: added column garmin_activities.%s", col)
                 conn.commit()
-            if "food_cache" not in table_names:
-                FoodCache.__table__.create(self._engine)
-                logger.info("Migration: created table food_cache")
             if "newsletter_posts" not in table_names:
                 NewsletterPost.__table__.create(self._engine)
                 logger.info("Migration: created table newsletter_posts")
@@ -683,128 +673,6 @@ class Repository:
                 "avg_fiber": _avg(result.fiber_g),
                 "days_with_data": result.days_with_data or 0,
             }
-
-    # ------------------------------------------------------------------ #
-    # Food cache operations                                               #
-    # ------------------------------------------------------------------ #
-
-    def get_food_cache(self, query_text: str) -> list[dict] | None:
-        """Return cached FoodItemResult dicts for the normalised query, or None on miss.
-
-        Also bumps use_count and last_used_at on a hit.
-        """
-        import json
-        normalized = query_text.lower().strip()
-        with self._session() as session:
-            entry = session.get(FoodCache, normalized)
-            if entry is None:
-                return None
-            entry.use_count += 1
-            entry.last_used_at = datetime.now(UTC)
-            return json.loads(entry.items_json)
-
-    def set_food_cache(self, query_text: str, items: list[dict]) -> None:
-        """Store or overwrite the LLM result for the given query."""
-        import json
-        normalized = query_text.lower().strip()
-        items_json = json.dumps(items, ensure_ascii=False)
-        with self._session() as session:
-            entry = session.get(FoodCache, normalized)
-            if entry is None:
-                session.add(FoodCache(query_text=normalized, items_json=items_json))
-            else:
-                entry.items_json = items_json
-                entry.last_used_at = datetime.now(UTC)
-        logger.debug("Food cache set for query %r", normalized)
-
-    # ------------------------------------------------------------------ #
-    # Meal preset operations                                               #
-    # ------------------------------------------------------------------ #
-
-    def save_meal_preset(self, name: str, items: list[dict]) -> MealPreset:
-        """Create or replace a meal preset with the given items.
-
-        If a preset with this name already exists, it is deleted and recreated
-        (cascade delete removes old items). Name matching is case-insensitive.
-
-        Args:
-            name: Preset name (e.g. "Lanche").
-            items: List of dicts with keys: name, quantity, unit, calories,
-                   protein_g, fat_g, carbs_g, fiber_g.
-
-        Returns:
-            The newly created MealPreset ORM object (detached).
-        """
-        with self._session() as session:
-            # Delete existing preset with same name (case-insensitive)
-            existing = (
-                session.query(MealPreset)
-                .filter(MealPreset.name.ilike(name))
-                .first()
-            )
-            if existing:
-                session.delete(existing)
-                session.flush()
-
-            preset = MealPreset(name=name)
-            session.add(preset)
-            session.flush()  # get preset.id
-
-            for item in items:
-                session.add(MealPresetItem(
-                    preset_id=preset.id,
-                    name=item["name"],
-                    quantity=item.get("quantity", 1.0),
-                    unit=item.get("unit", "un"),
-                    calories=item.get("calories"),
-                    protein_g=item.get("protein_g"),
-                    fat_g=item.get("fat_g"),
-                    carbs_g=item.get("carbs_g"),
-                    fiber_g=item.get("fiber_g"),
-                ))
-            logger.debug("Saved meal preset %r with %d items", name, len(items))
-            return preset
-
-    def get_meal_preset_by_name(self, name: str) -> MealPreset | None:
-        """Fetch a preset by name (case-insensitive). Returns None if not found."""
-        with self._session() as session:
-            preset = (
-                session.query(MealPreset)
-                .filter(MealPreset.name.ilike(name))
-                .first()
-            )
-            if preset is None:
-                return None
-            # Eagerly load items while session is open
-            _ = [item.name for item in preset.items]
-            return preset
-
-    def list_meal_presets(self) -> list[MealPreset]:
-        """Return all meal presets ordered by name, with items loaded."""
-        with self._session() as session:
-            presets = (
-                session.query(MealPreset)
-                .order_by(MealPreset.name)
-                .all()
-            )
-            # Eagerly load items while session is open
-            for preset in presets:
-                _ = [item.name for item in preset.items]
-            return presets
-
-    def delete_meal_preset(self, name: str) -> bool:
-        """Delete a preset by name (case-insensitive). Returns True if deleted."""
-        with self._session() as session:
-            preset = (
-                session.query(MealPreset)
-                .filter(MealPreset.name.ilike(name))
-                .first()
-            )
-            if preset is None:
-                return False
-            session.delete(preset)
-            logger.debug("Deleted meal preset %r", name)
-            return True
 
     # ------------------------------------------------------------------ #
     # User settings operations                                             #

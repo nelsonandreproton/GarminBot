@@ -92,13 +92,13 @@
         <p style="color:var(--muted);font-size:0.9rem;margin-bottom:12px;">
           Telegram bot that authenticates with Garmin Connect daily, fetches health metrics
           (sleep, steps, calories, HRV), stores them in SQLite, and sends formatted reports
-          in Portuguese. Also handles nutrition logging via barcode/text and generates
+          in Portuguese. Also syncs nutrition data from FatSecret and generates
           AI-powered workout plans using Groq.
         </p>
         <div>
           <span class="tag">Daily sync</span><span class="tag">Nutrition tracking</span>
           <span class="tag">Workout recs</span><span class="tag">Weekly summaries</span>
-          <span class="tag">Barcode scanning</span><span class="tag">X/Twitter analysis</span>
+          <span class="tag">X/Twitter analysis</span>
           <span class="tag">Meal export (CSV/JSON/XLSX)</span>
           <span class="tag">Activity export (CSV/JSON/XLSX)</span>
           <span class="tag">Daily metrics export (CSV/JSON/XLSX)</span>
@@ -137,7 +137,7 @@
           <div class="flow-arrow">→</div>
           <div class="flow-box yellow"><strong>Telegram</strong><small>daily report</small></div>
         </div>
-        <p style="color:var(--muted);font-size:0.82rem;margin:16px 0 12px;">Nutrition pipeline — FatSecret primary, /comi fallback</p>
+        <p style="color:var(--muted);font-size:0.82rem;margin:16px 0 12px;">Nutrition pipeline (FatSecret sync)</p>
         <div class="flow">
           <div class="flow-box green"><strong>FatSecret app</strong><small>you log food</small></div>
           <div class="flow-arrow">→</div>
@@ -148,18 +148,6 @@
           <div class="flow-box accent"><strong>SQLite</strong><small>upsert by id</small></div>
           <div class="flow-arrow">→</div>
           <div class="flow-box purple"><strong>/hoje</strong><small>kcal left/exceeded</small></div>
-        </div>
-        <p style="color:var(--muted);font-size:0.82rem;margin:16px 0 12px;">Manual fallback (/comi command)</p>
-        <div class="flow">
-          <div class="flow-box purple"><strong>/comi</strong><small>text or photo</small></div>
-          <div class="flow-arrow">→</div>
-          <div class="flow-box"><strong>barcode.py</strong><small>pyzbar decode</small></div>
-          <div class="flow-arrow">→</div>
-          <div class="flow-box cyan"><strong>OpenFoodFacts</strong><small>EAN lookup</small></div>
-          <div class="flow-arrow">→</div>
-          <div class="flow-box orange"><strong>Groq parser</strong><small>NLP fallback</small></div>
-          <div class="flow-arrow">→</div>
-          <div class="flow-box accent"><strong>SQLite</strong><small>nutrition table</small></div>
         </div>
         <p style="color:var(--muted);font-size:0.82rem;margin:16px 0 12px;">Workout recommendation (/treino command)</p>
         <div class="flow">
@@ -234,8 +222,6 @@
           <tr><td><code>src/garmin/client.py</code></td><td>Fetches sleep, activity, HRV, steps from Garmin Connect</td><td><span class="pill cyan">data</span></td></tr>
           <tr><td><code>src/nutrition/fatsecret_client.py</code></td><td>FatSecret Platform API (OAuth1) — reads your food diary</td><td><span class="pill green">data</span></td></tr>
           <tr><td><code>src/nutrition/fatsecret_mapper.py</code></td><td>Maps FatSecret entries → FoodEntry (idempotent upsert)</td><td><span class="pill green">data</span></td></tr>
-          <tr><td><code>src/nutrition/parser.py</code></td><td>Groq LLM → structured (food, qty, kcal, macros) — /comi fallback</td><td><span class="pill orange">AI</span></td></tr>
-          <tr><td><code>src/nutrition/openfoodfacts.py</code></td><td>OpenFoodFacts API client for EAN & text lookup</td><td><span class="pill cyan">data</span></td></tr>
           <tr><td><code>src/integrations/outsystems_client.py</code></td><td>Creates a daily record in an external OutSystems app during /sync</td><td><span class="pill cyan">data</span></td></tr>
           <tr><td><code>src/training/recommender.py</code></td><td>Groq LLM workout plan generation</td><td><span class="pill orange">AI</span></td></tr>
           <tr><td><code>src/telegram/bot.py</code></td><td>All Telegram commands and handlers</td><td><span class="pill blue">bot</span></td></tr>

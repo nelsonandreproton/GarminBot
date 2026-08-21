@@ -3,10 +3,8 @@ FROM python:3.13-slim
 LABEL maintainer="Nelson Andre"
 LABEL description="GarminBot - Garmin Connect to Telegram health bot"
 
-# System dependencies:
-#   libzbar0  - barcode decoding (pyzbar)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends libzbar0 git && \
+    apt-get install -y --no-install-recommends git && \
     rm -rf /var/lib/apt/lists/*
 
 # Create non-root user (uid 1000 matches host garminbot user from server-setup.sh)
