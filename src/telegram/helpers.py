@@ -169,4 +169,6 @@ def _row_to_metrics(row: Any) -> dict[str, Any]:
         "body_battery_low": row.body_battery_low,
         "spo2_avg": getattr(row, "spo2_avg", None),
         "weight_kg": row.weight_kg,
+        "hydration_ml": getattr(row, "hydration_ml", None),
+        "hydration_goal_ml": getattr(row, "hydration_goal_ml", None),
     }

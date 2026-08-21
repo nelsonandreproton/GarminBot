@@ -93,13 +93,23 @@ def generate_insights(rows: list[Any], goals: dict[str, float] | None = None) ->
     return insights
 
 
-def generate_daily_alerts(metrics: dict[str, Any], rows: list[Any], goals: dict[str, float] | None = None) -> list[str]:
+def generate_daily_alerts(
+    metrics: dict[str, Any],
+    rows: list[Any],
+    goals: dict[str, float] | None = None,
+    *,
+    is_live_day: bool = False,
+) -> list[str]:
     """Generate contextual alerts to append to the daily report.
 
     Args:
-        metrics: Today's metrics dict (sleep_hours, steps, sleep_score).
+        metrics: The report day's metrics dict (sleep_hours, steps, sleep_score).
         rows: Recent DailyMetrics rows for streak detection.
         goals: Optional user goals dict.
+        is_live_day: True when metrics are a still-accumulating snapshot of
+            today (e.g. /hoje) rather than a completed day. Step-count alerts
+            are skipped in that case — a low step count so far today doesn't
+            mean the day was sedentary, only that it isn't over yet.
 
     Returns:
         List of alert strings (may be empty).
@@ -117,7 +127,7 @@ def generate_daily_alerts(metrics: dict[str, Any], rows: list[Any], goals: dict[
     elif sleep_score is not None and sleep_score >= 85:
         alerts.append("🌟 Excelente noite de sono!")
 
-    if steps is not None and steps < 1000:
+    if not is_live_day and steps is not None and steps < 1000:
         alerts.append("🚶 Dia muito parado ontem. Tenta mexer-te hoje.")
 
     if rows and steps is not None and steps >= steps_goal:

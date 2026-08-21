@@ -59,6 +59,8 @@ class Repository:
                 "intensity_moderate_min": "INTEGER",
                 "intensity_vigorous_min": "INTEGER",
                 "spo2_avg": "REAL",
+                "hydration_ml": "INTEGER",
+                "hydration_goal_ml": "INTEGER",
             }
             _allowed_col_types = {"INTEGER", "REAL", "TEXT", "BLOB"}
             for col, col_type in new_cols.items():
@@ -513,22 +515,26 @@ class Repository:
             return int(total) if total else 0
 
     def get_weekly_water_avg(self, end_date: date) -> float | None:
-        """Return average daily ml of water over the last 7 days ending on end_date.
+        """Return average daily ml of hydration over the last 7 days ending on end_date.
 
-        Returns None if no water data in that period.
+        Sourced from daily_metrics.hydration_ml (synced from Garmin), matching
+        /sync, /hoje, and /ontem, which show Garmin hydration rather than the
+        manual /agua log. Returns None if no hydration data in that period.
         """
-        from sqlalchemy import func
         start_date = end_date - timedelta(days=6)
         with self._session() as session:
             rows = (
-                session.query(WaterEntry.date, func.sum(WaterEntry.ml).label("total_ml"))
-                .filter(WaterEntry.date >= start_date, WaterEntry.date <= end_date)
-                .group_by(WaterEntry.date)
+                session.query(DailyMetrics.hydration_ml)
+                .filter(
+                    DailyMetrics.date >= start_date,
+                    DailyMetrics.date <= end_date,
+                    DailyMetrics.hydration_ml.isnot(None),
+                )
                 .all()
             )
         if not rows:
             return None
-        return sum(r.total_ml for r in rows) / 7  # avg over 7 days, not just days with data
+        return sum(r.hydration_ml for r in rows) / 7  # avg over 7 days, not just days with data
 
     # ------------------------------------------------------------------ #
     # Nutrition operations                                                  #

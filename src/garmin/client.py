@@ -88,6 +88,8 @@ class DailySummary:
     intensity_moderate_min: int | None = None
     intensity_vigorous_min: int | None = None
     weight_kg: float | None = None
+    hydration_ml: int | None = None
+    hydration_goal_ml: int | None = None
 
 
 def _assess_sleep_quality(score: int | None) -> str | None:
@@ -300,6 +302,8 @@ class GarminClient:
             "spo2_avg": None,
             "intensity_moderate_min": None,
             "intensity_vigorous_min": None,
+            "hydration_ml": None,
+            "hydration_goal_ml": None,
         }
         try:
             stats = client.get_stats(date_str)
@@ -359,6 +363,18 @@ class GarminClient:
                 self._handle_rate_limit()
                 raise
             logger.debug("Could not fetch intensity minutes for %s: %s", date_str, exc)
+        try:
+            hydration = client.get_hydration_data(date_str)
+            if hydration and isinstance(hydration, dict):
+                value = hydration.get("valueInML")
+                goal = hydration.get("goalInML")
+                result["hydration_ml"] = round(value) if value is not None else None
+                result["hydration_goal_ml"] = round(goal) if goal is not None else None
+        except Exception as exc:
+            if _is_rate_limit(exc):
+                self._handle_rate_limit()
+                raise
+            logger.debug("Could not fetch hydration for %s: %s", date_str, exc)
         return result
 
     def get_weight_data(self, day: date) -> float | None:
@@ -727,5 +743,7 @@ class GarminClient:
             "body_battery_low": summary.body_battery_low,
             "spo2_avg": summary.spo2_avg,
             "weight_kg": summary.weight_kg,
+            "hydration_ml": summary.hydration_ml,
+            "hydration_goal_ml": summary.hydration_goal_ml,
             "garmin_sync_success": has_data,
         }

@@ -220,10 +220,12 @@ def format_daily_summary(
             if budget_line is not None:
                 lines.append(budget_line)
 
-    water_ml = metrics.get("water_ml")
-    if water_ml:
-        liters = water_ml / 1000
-        lines += ["", f"💧 *Água:* {liters:.1f} L ({water_ml} ml)"]
+    hydration_ml = metrics.get("hydration_ml")
+    if hydration_ml:
+        liters = hydration_ml / 1000
+        goal_ml = metrics.get("hydration_goal_ml")
+        goal_suffix = f" / {goal_ml / 1000:.1f} L" if goal_ml else ""
+        lines += ["", f"💧 *Água:* {liters:.1f} L{goal_suffix} ({hydration_ml} ml)"]
 
     if alerts:
         lines += ["", "💬 *Alertas:*"] + [f"• {a}" for a in alerts]

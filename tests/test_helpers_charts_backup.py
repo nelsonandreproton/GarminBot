@@ -105,6 +105,8 @@ def _make_orm_row(**overrides):
         body_battery_low=20,
         spo2_avg=97.0,
         weight_kg=78.5,
+        hydration_ml=1800,
+        hydration_goal_ml=2839,
     )
     defaults.update(overrides)
     return SimpleNamespace(**defaults)
@@ -120,6 +122,8 @@ def test_row_to_metrics_maps_all_fields():
     assert m["resting_heart_rate"] == 55
     assert m["weight_kg"] == 78.5
     assert m["spo2_avg"] == 97.0
+    assert m["hydration_ml"] == 1800
+    assert m["hydration_goal_ml"] == 2839
 
 
 def test_row_to_metrics_optional_fields_default_none():
@@ -136,6 +140,8 @@ def test_row_to_metrics_optional_fields_default_none():
     assert m["sleep_deep_min"] is None
     assert m["spo2_avg"] is None
     assert m["floors_ascended"] is None
+    assert m["hydration_ml"] is None
+    assert m["hydration_goal_ml"] is None
 
 
 # ------------------------------------------------------------------ #

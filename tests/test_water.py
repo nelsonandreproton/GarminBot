@@ -59,7 +59,8 @@ def test_entries_isolated_by_date(repo):
 
 
 # ------------------------------------------------------------------ #
-# Repository: get_weekly_water_avg                                     #
+# Repository: get_weekly_water_avg (sourced from daily_metrics.hydration_ml,
+# synced from Garmin — matches /sync, /hoje, /ontem, not the manual /agua log)
 # ------------------------------------------------------------------ #
 
 def test_weekly_water_avg_no_data(repo):
@@ -69,7 +70,7 @@ def test_weekly_water_avg_no_data(repo):
 
 def test_weekly_water_avg_single_day(repo):
     end = date.today()
-    repo.add_water_entry(end, 2000)
+    repo.save_daily_metrics(end, {"hydration_ml": 2000})
     avg = repo.get_weekly_water_avg(end)
     # 2000 ml logged over 7 days = 2000/7 avg
     assert avg == pytest.approx(2000 / 7, rel=0.01)
@@ -78,7 +79,7 @@ def test_weekly_water_avg_single_day(repo):
 def test_weekly_water_avg_multiple_days(repo):
     end = date.today()
     for i in range(7):
-        repo.add_water_entry(end - timedelta(days=i), 1000)
+        repo.save_daily_metrics(end - timedelta(days=i), {"hydration_ml": 1000})
     avg = repo.get_weekly_water_avg(end)
     # 7000 ml over 7 days = 1000 avg
     assert avg == pytest.approx(1000.0, rel=0.01)
@@ -86,15 +87,25 @@ def test_weekly_water_avg_multiple_days(repo):
 
 def test_weekly_water_avg_excludes_outside_range(repo):
     end = date.today()
-    repo.add_water_entry(end - timedelta(days=10), 5000)  # outside 7-day window
-    repo.add_water_entry(end, 1400)
+    repo.save_daily_metrics(end - timedelta(days=10), {"hydration_ml": 5000})  # outside 7-day window
+    repo.save_daily_metrics(end, {"hydration_ml": 1400})
     avg = repo.get_weekly_water_avg(end)
     # Only 1400 ml in range, divided by 7 days
     assert avg == pytest.approx(1400 / 7, rel=0.01)
 
 
+def test_weekly_water_avg_ignores_null_hydration_days(repo):
+    """A day with a daily_metrics row but no hydration data (hydration_ml=None,
+    e.g. synced before hydration tracking started) must not count as a zero."""
+    end = date.today()
+    repo.save_daily_metrics(end - timedelta(days=1), {"steps": 5000})  # no hydration_ml
+    repo.save_daily_metrics(end, {"hydration_ml": 700})
+    avg = repo.get_weekly_water_avg(end)
+    assert avg == pytest.approx(700 / 7, rel=0.01)
+
+
 # ------------------------------------------------------------------ #
-# Formatter: format_daily_summary with water_ml                       #
+# Formatter: format_daily_summary with hydration_ml (from Garmin)    #
 # ------------------------------------------------------------------ #
 
 def test_format_daily_summary_shows_water():
@@ -103,12 +114,24 @@ def test_format_daily_summary_shows_water():
         "date": date(2026, 2, 15),
         "sleep_hours": 7.5, "sleep_score": 80, "sleep_quality": "Bom",
         "steps": 10000, "active_calories": 400, "resting_calories": 1700,
-        "water_ml": 2000,
+        "hydration_ml": 2000,
     }
     text = format_daily_summary(metrics)
     assert "Água" in text
     assert "2.0 L" in text
     assert "2000 ml" in text
+
+
+def test_format_daily_summary_shows_water_goal():
+    from src.telegram.formatters import format_daily_summary
+    metrics = {
+        "date": date(2026, 2, 15),
+        "steps": 10000,
+        "hydration_ml": 1500,
+        "hydration_goal_ml": 3000,
+    }
+    text = format_daily_summary(metrics)
+    assert "1.5 L / 3.0 L" in text
 
 
 def test_format_daily_summary_no_water():
@@ -127,7 +150,7 @@ def test_format_daily_summary_zero_water_not_shown():
     metrics = {
         "date": date(2026, 2, 15),
         "steps": 10000,
-        "water_ml": 0,
+        "hydration_ml": 0,
     }
     text = format_daily_summary(metrics)
     assert "Água" not in text

@@ -39,6 +39,8 @@ class DailyMetrics(Base):
     body_battery_low = Column(Integer, nullable=True)
     spo2_avg = Column(Float, nullable=True)
     weight_kg = Column(Float, nullable=True)
+    hydration_ml = Column(Integer, nullable=True)
+    hydration_goal_ml = Column(Integer, nullable=True)
     synced_at = Column(DateTime, default=lambda: datetime.now(UTC))
     garmin_sync_success = Column(Boolean, default=True)
 

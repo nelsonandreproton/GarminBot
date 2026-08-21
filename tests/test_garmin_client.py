@@ -206,3 +206,90 @@ def test_to_metrics_dict():
     assert d["sleep_hours"] == 7.5
     assert d["steps"] == 10000
     assert d["garmin_sync_success"] is True
+
+
+def test_to_metrics_dict_includes_hydration():
+    from src.garmin.client import DailySummary
+    client = _make_client()
+    summary = DailySummary(
+        date=date(2026, 2, 12),
+        sleep=SleepData(hours=7.5, score=82, quality="Excelente"),
+        activity=ActivityData(steps=10000, active_calories=400, resting_calories=1700),
+        hydration_ml=473,
+        hydration_goal_ml=2839,
+    )
+    d = client.to_metrics_dict(summary)
+    assert d["hydration_ml"] == 473
+    assert d["hydration_goal_ml"] == 2839
+
+
+def test_get_health_data_parses_hydration():
+    """Prove-It: get_hydration_data returns valueInML/goalInML as floats
+    (e.g. 473.176) — confirmed against production 2026-08-21 response."""
+    client = _make_client()
+    mock_garmin = MagicMock()
+    mock_garmin.get_stats.return_value = {}
+    mock_garmin.get_stress_data.return_value = {}
+    mock_garmin.get_body_battery.return_value = []
+    mock_garmin.get_spo2_data.return_value = {}
+    mock_garmin.get_intensity_minutes_data.return_value = {}
+    mock_garmin.get_hydration_data.return_value = {
+        "userId": 111807159,
+        "calendarDate": "2026-08-21",
+        "valueInML": 473.176,
+        "goalInML": 2839.056,
+        "dailyAverageinML": None,
+        "lastEntryTimestampLocal": "2026-08-21T09:25:01.484",
+        "sweatLossInML": None,
+        "activityIntakeInML": 0.0,
+    }
+    client._client = mock_garmin
+
+    result = client.get_health_data(date(2026, 8, 21))
+
+    assert result["hydration_ml"] == 473
+    assert result["hydration_goal_ml"] == 2839
+
+
+def test_get_health_data_hydration_null_stays_none():
+    """A day with no logged hydration returns null fields (confirmed against
+    production for a day before the user started logging water)."""
+    client = _make_client()
+    mock_garmin = MagicMock()
+    mock_garmin.get_stats.return_value = {}
+    mock_garmin.get_stress_data.return_value = {}
+    mock_garmin.get_body_battery.return_value = []
+    mock_garmin.get_spo2_data.return_value = {}
+    mock_garmin.get_intensity_minutes_data.return_value = {}
+    mock_garmin.get_hydration_data.return_value = {
+        "userId": 111807159,
+        "calendarDate": "2026-08-01",
+        "valueInML": None,
+        "goalInML": 2839.056,
+        "dailyAverageinML": None,
+        "lastEntryTimestampLocal": None,
+        "sweatLossInML": None,
+        "activityIntakeInML": None,
+    }
+    client._client = mock_garmin
+
+    result = client.get_health_data(date(2026, 8, 1))
+
+    assert result["hydration_ml"] is None
+
+
+def test_get_health_data_hydration_api_failure_stays_none():
+    client = _make_client()
+    mock_garmin = MagicMock()
+    mock_garmin.get_stats.return_value = {}
+    mock_garmin.get_stress_data.return_value = {}
+    mock_garmin.get_body_battery.return_value = []
+    mock_garmin.get_spo2_data.return_value = {}
+    mock_garmin.get_intensity_minutes_data.return_value = {}
+    mock_garmin.get_hydration_data.side_effect = Exception("API error")
+    client._client = mock_garmin
+
+    result = client.get_health_data(date(2026, 8, 21))
+
+    assert result["hydration_ml"] is None
+    assert result["hydration_goal_ml"] is None
