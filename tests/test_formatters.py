@@ -1,10 +1,12 @@
 """Tests for src/telegram/formatters.py."""
 
-from datetime import date
+from datetime import date, datetime
+from unittest.mock import MagicMock
 
 import pytest
 
 from src.telegram.formatters import (
+    _escape_md,
     calculate_deficit,
     format_daily_summary,
     format_error_message,
@@ -17,6 +19,20 @@ from src.telegram.formatters import (
     format_weekly_report,
     format_workout_section,
 )
+
+
+class TestEscapeMd:
+    def test_escapes_underscore(self):
+        assert _escape_md("whey_protein") == "whey\\_protein"
+
+    def test_escapes_asterisk(self):
+        assert _escape_md("100% Whey*") == "100% Whey\\*"
+
+    def test_escapes_backtick_and_bracket(self):
+        assert _escape_md("`code` [link]") == "\\`code\\` \\[link]"
+
+    def test_plain_text_unchanged(self):
+        assert _escape_md("Ovo Cozido") == "Ovo Cozido"
 
 
 def test_format_daily_summary_basic():
@@ -225,6 +241,74 @@ def test_format_nutrition_summary_with_deficit():
     assert "Nutrição" in text
     assert "1850 kcal" in text
     assert "Défice" in text
+
+
+def _make_food_entry(**overrides):
+    defaults = dict(
+        name="Ovo Cozido", quantity=2, unit="un", calories=140.0,
+        source="llm_estimate", meal=None,
+        created_at=datetime(2026, 8, 20, 14, 29),
+    )
+    defaults.update(overrides)
+    entry = MagicMock()
+    for k, v in defaults.items():
+        setattr(entry, k, v)
+    return entry
+
+
+class TestFormatNutritionDayMealLabel:
+    def test_fatsecret_entry_shows_meal_category_not_sync_time(self):
+        """Prove-It: FatSecret's food_entries.get has no per-entry time-of-day
+        field — created_at is only when the bot synced the row, not when the
+        meal was eaten. A FatSecret entry must show its meal category instead."""
+        entry = _make_food_entry(source="fatsecret", meal="Breakfast",
+                                  created_at=datetime(2026, 8, 20, 14, 29))
+        text = format_nutrition_day([entry], {"calories": 140})
+        assert "Pequeno-almoço" in text
+        assert "14:29" not in text
+
+    def test_fatsecret_entry_translates_all_meal_categories(self):
+        for raw, expected in [("Breakfast", "Pequeno-almoço"), ("Lunch", "Almoço"),
+                               ("Dinner", "Jantar"), ("Other", "Outro")]:
+            entry = _make_food_entry(source="fatsecret", meal=raw)
+            text = format_nutrition_day([entry], {"calories": 140})
+            assert expected in text
+
+    def test_fatsecret_entry_falls_back_to_time_when_meal_missing(self):
+        """An older FatSecret row synced before the meal column existed has
+        meal=None — degrade to the time rather than showing nothing."""
+        entry = _make_food_entry(source="fatsecret", meal=None,
+                                  created_at=datetime(2026, 8, 20, 14, 29))
+        text = format_nutrition_day([entry], {"calories": 140})
+        assert "14:29" in text
+
+    def test_manual_entry_still_shows_real_time(self):
+        """/comi entries have a genuine created_at close to when they were
+        logged — only FatSecret's fabricated sync-time needs replacing."""
+        entry = _make_food_entry(source="llm_estimate", meal=None,
+                                  created_at=datetime(2026, 8, 20, 13, 15))
+        text = format_nutrition_day([entry], {"calories": 140})
+        assert "13:15" in text
+
+    def test_unknown_meal_value_shown_verbatim(self):
+        entry = _make_food_entry(source="fatsecret", meal="Snack")
+        text = format_nutrition_day([entry], {"calories": 140})
+        assert "Snack" in text
+
+    def test_food_name_with_markdown_chars_is_escaped(self):
+        """Prove-It: FatSecret food names are free text and can contain Markdown
+        special characters (e.g. '100% Whey_Protein*'). Unescaped, Telegram's
+        legacy Markdown parser raises BadRequest on the reply — this must not
+        happen for entries that legitimately contain '_', '*', '`', or '['."""
+        entry = _make_food_entry(source="fatsecret", meal="Breakfast",
+                                  name="whey_protein* [vanilla]")
+        text = format_nutrition_day([entry], {"calories": 140})
+        assert "Whey\\_Protein\\* \\[Vanilla]" in text
+
+    def test_unknown_meal_value_with_markdown_chars_is_escaped(self):
+        entry = _make_food_entry(source="fatsecret", meal="Snack_Time*")
+        text = format_nutrition_day([entry], {"calories": 140})
+        assert "Snack\\_Time\\*" in text
 
 
 def test_format_daily_summary_with_nutrition():

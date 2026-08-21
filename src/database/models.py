@@ -86,6 +86,7 @@ class FoodEntry(Base):
     fiber_g = Column(Float, nullable=True)
     source = Column(String(30), nullable=False, default="openfoodfacts")
     barcode = Column(String(50), nullable=True)
+    meal = Column(String(20), nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(UTC))
 
 

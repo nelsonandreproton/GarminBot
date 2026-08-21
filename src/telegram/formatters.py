@@ -6,6 +6,25 @@ from datetime import date
 from typing import Any
 
 
+_MEAL_NAMES_PT = {
+    "Breakfast": "Pequeno-almoço",
+    "Lunch": "Almoço",
+    "Dinner": "Jantar",
+    "Other": "Outro",
+}
+
+
+def _escape_md(text: str) -> str:
+    """Escape legacy Markdown (ParseMode.MARKDOWN / v1) reserved characters.
+
+    Needed for any external-API-controlled string (FatSecret food/meal names)
+    interpolated into a Markdown-formatted message — an unescaped `_`, `*`,
+    `` ` ``, or `[` breaks Telegram's parser (BadRequest)."""
+    for char in ("_", "*", "`", "["):
+        text = text.replace(char, f"\\{char}")
+    return text
+
+
 def _fmt_hours(hours: float | None) -> str:
     """Format decimal hours as 'Xh YYmin'."""
     if hours is None:
@@ -702,10 +721,18 @@ def format_nutrition_day(entries: list[Any], nutrition_totals: dict[str, Any],
     if entries:
         lines.append("📋 *Refeições registadas:*")
         for e in entries:
-            time_str = e.created_at.strftime("%H:%M") if e.created_at else "—"
+            # FatSecret has no per-entry time-of-day field — created_at there is
+            # only the moment the bot synced the row, not when it was eaten.
+            # Show the meal category (Breakfast/Lunch/...) instead of a fake time.
+            meal = getattr(e, "meal", None)
+            if e.source == "fatsecret" and meal:
+                label = _escape_md(_MEAL_NAMES_PT.get(meal, meal))
+            else:
+                label = e.created_at.strftime("%H:%M") if e.created_at else "—"
             qty_str = f"{int(e.quantity)}" if e.unit == "un" else f"{e.quantity:g}{e.unit}"
             cal = int(e.calories) if e.calories else "?"
-            lines.append(f"• {time_str} — {e.name.title()} ({qty_str}) — {cal} kcal")
+            name = _escape_md(e.name.title())
+            lines.append(f"• {label} — {name} ({qty_str}) — {cal} kcal")
     else:
         lines.append("_Sem refeições registadas hoje._")
         lines.append("Usa /sync para sincronizar as refeições do FatSecret.")

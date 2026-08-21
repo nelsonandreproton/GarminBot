@@ -122,6 +122,15 @@ class TestMapFatSecretEntry:
         # date must not appear — the repo's save_food_entries receives day separately
         assert "date" not in self.mapped
 
+    def test_meal_category(self):
+        assert self.mapped["meal"] == "Breakfast"
+
+    def test_meal_missing_returns_none(self):
+        raw = dict(SINGLE_ENTRY_DICT)
+        del raw["meal"]
+        mapped = map_fatsecret_entry(raw)
+        assert mapped["meal"] is None
+
     def test_fiber_missing_returns_none(self):
         raw = dict(SINGLE_ENTRY_DICT)
         del raw["fiber"]

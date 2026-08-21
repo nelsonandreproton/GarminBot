@@ -35,7 +35,8 @@ def repo():
 
 DAY = date(2026, 6, 17)
 
-def _entry(food_entry_id: str = "FS001", calories: float = 300.0, name: str = "Oats") -> dict:
+def _entry(food_entry_id: str = "FS001", calories: float = 300.0, name: str = "Oats",
+           meal: str | None = "Breakfast") -> dict:
     """Build a mapped FatSecret entry dict (as produced by map_fatsecret_entries)."""
     return {
         "name": name,
@@ -48,6 +49,7 @@ def _entry(food_entry_id: str = "FS001", calories: float = 300.0, name: str = "O
         "unit": "serving",
         "source": "fatsecret",
         "barcode": food_entry_id,
+        "meal": meal,
     }
 
 
@@ -146,6 +148,18 @@ class TestUpsertUpdate:
         ])
         assert result["inserted"] == 1
         assert result["updated"] == 2
+
+    def test_insert_persists_meal_category(self, repo):
+        repo.upsert_fatsecret_entries(DAY, [_entry("FS001", meal="Lunch")])
+        entries = repo.get_food_entries(DAY)
+        assert entries[0].meal == "Lunch"
+
+    def test_update_changes_meal_in_place(self, repo):
+        """A meal moved between categories in the FatSecret app should follow."""
+        repo.upsert_fatsecret_entries(DAY, [_entry("FS001", meal="Breakfast")])
+        repo.upsert_fatsecret_entries(DAY, [_entry("FS001", meal="Lunch")])
+        entries = repo.get_food_entries(DAY)
+        assert entries[0].meal == "Lunch"
 
 
 # ---------------------------------------------------------------------------

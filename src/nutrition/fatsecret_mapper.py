@@ -69,6 +69,9 @@ def map_fatsecret_entry(raw: dict) -> dict:
         "source": "fatsecret",
         # Reuse barcode column as the FatSecret dedup key (food_entry_id is unique per diary entry)
         "barcode": raw.get("food_entry_id"),
+        # FatSecret's food_entries.get has no per-entry time-of-day field, only a
+        # meal category (Breakfast/Lunch/Dinner/Other) — verified empirically.
+        "meal": raw.get("meal"),
     }
 
 

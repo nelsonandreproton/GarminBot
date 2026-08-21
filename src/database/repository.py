@@ -73,6 +73,12 @@ class Repository:
             if "food_entries" not in inspector.get_table_names():
                 FoodEntry.__table__.create(self._engine)
                 logger.info("Migration: created table food_entries")
+            else:
+                fe_cols = {c["name"] for c in inspector.get_columns("food_entries")}
+                if "meal" not in fe_cols:
+                    conn.execute(text("ALTER TABLE food_entries ADD COLUMN meal TEXT"))
+                    logger.info("Migration: added column food_entries.meal")
+                    conn.commit()
             table_names = inspector.get_table_names()
             if "user_settings" not in table_names:
                 UserSetting.__table__.create(self._engine)
@@ -554,7 +560,7 @@ class Repository:
         """
         inserted = 0
         updated = 0
-        updatable_fields = ("name", "quantity", "unit", "calories", "protein_g", "fat_g", "carbs_g", "fiber_g")
+        updatable_fields = ("name", "quantity", "unit", "calories", "protein_g", "fat_g", "carbs_g", "fiber_g", "meal")
         with self._session() as session:
             for entry in entries:
                 barcode = entry.get("barcode")
@@ -582,22 +588,22 @@ class Repository:
         return {"inserted": inserted, "updated": updated}
 
     def get_food_entries(self, day: date) -> list[FoodEntry]:
-        """Return all food entries for a day, ordered by created_at."""
+        """Return all food entries for a day, ordered by created_at (tie-broken by id)."""
         with self._session() as session:
             return (
                 session.query(FoodEntry)
                 .filter_by(date=day)
-                .order_by(FoodEntry.created_at)
+                .order_by(FoodEntry.created_at, FoodEntry.id)
                 .all()
             )
 
     def get_food_entries_range(self, start_date: date, end_date: date) -> list[FoodEntry]:
-        """Return all food entries between start_date and end_date (inclusive), ordered by date and created_at."""
+        """Return all food entries between start_date and end_date (inclusive), ordered by date, created_at, id."""
         with self._session() as session:
             return (
                 session.query(FoodEntry)
                 .filter(FoodEntry.date >= start_date, FoodEntry.date <= end_date)
-                .order_by(FoodEntry.date, FoodEntry.created_at)
+                .order_by(FoodEntry.date, FoodEntry.created_at, FoodEntry.id)
                 .all()
             )
 
@@ -614,12 +620,12 @@ class Repository:
         return missing
 
     def delete_last_food_entry(self, day: date) -> FoodEntry | None:
-        """Delete the most recent food entry for the day. Returns deleted entry or None."""
+        """Delete the most recent food entry for the day (tie-broken by id). Returns deleted entry or None."""
         with self._session() as session:
             row = (
                 session.query(FoodEntry)
                 .filter_by(date=day)
-                .order_by(FoodEntry.created_at.desc())
+                .order_by(FoodEntry.created_at.desc(), FoodEntry.id.desc())
                 .first()
             )
             if row:

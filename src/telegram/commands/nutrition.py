@@ -49,10 +49,12 @@ class NutritionMixin:
             return
         deleted = self._repo.delete_last_food_entry(date.today())
         if deleted:
+            from ..formatters import _escape_md
             cal = int(deleted.calories) if deleted.calories else "?"
             qty_str = f"{int(deleted.quantity)}" if deleted.unit == "un" else f"{deleted.quantity:g}{deleted.unit}"
+            name = _escape_md(deleted.name.title())
             await update.message.reply_text(
-                f"🗑 Apagada última entrada: *{deleted.name.title()} ({qty_str}) — {cal} kcal*",
+                f"🗑 Apagada última entrada: *{name} ({qty_str}) — {cal} kcal*",
                 parse_mode=ParseMode.MARKDOWN,
             )
         else:
