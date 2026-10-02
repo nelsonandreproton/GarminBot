@@ -218,6 +218,7 @@
         <thead><tr><th>File</th><th>Role</th><th>Type</th></tr></thead>
         <tbody>
           <tr><td><code>src/main.py</code></td><td>Entry point — health check server + backfill logic</td><td><span class="pill blue">core</span></td></tr>
+          <tr><td><code>src/telegram/polling_monitor.py</code></td><td>Alerts on Telegram polling conflicts (hijacked webhook / second poller); feeds <code>/health</code></td><td><span class="pill blue">core</span></td></tr>
           <tr><td><code>src/garmin/auth.py</code></td><td>OAuth2 token persistence and auto-refresh</td><td><span class="pill cyan">auth</span></td></tr>
           <tr><td><code>src/garmin/client.py</code></td><td>Fetches sleep, activity, HRV, steps from Garmin Connect</td><td><span class="pill cyan">data</span></td></tr>
           <tr><td><code>src/nutrition/fatsecret_client.py</code></td><td>FatSecret Platform API (OAuth1) — reads your food diary</td><td><span class="pill green">data</span></td></tr>
@@ -273,7 +274,7 @@
       <div class="param-grid">
         <span class="label">Image</span><span class="val">python:3.11-slim, non-root uid 1000</span>
         <span class="label">Memory limit</span><span class="val">256m</span>
-        <span class="label">Health check</span><span class="val">HTTP :8080/health every 60s</span>
+        <span class="label">Health check</span><span class="val">HTTP :8080/health every 60s (sync freshness + <code>telegram_polling_ok</code>)</span>
         <span class="label">Volumes</span><span class="val">./data (SQLite), ./logs (rotating), ~/Obsidian (vault)</span>
         <span class="label">Restart</span><span class="val">unless-stopped</span>
         <span class="label">Deployed on</span><span class="val">Hetzner VPS via homeserver orchestrator</span>
