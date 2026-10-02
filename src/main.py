@@ -14,6 +14,7 @@ from .database.repository import Repository
 from .garmin.client import GarminClient, _is_rate_limit
 from .scheduler.jobs import make_newsletter_job, make_report_callback, make_sync_job
 from .telegram.bot import TelegramBot
+from .telegram.polling_monitor import PollingMonitor
 from .utils.logger import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -140,6 +141,8 @@ def run() -> None:
             from .utils.api import start_api_server
             start_api_server(config.garmin_api_port, config.garmin_api_key, repo, sync_fn=sync_callback)
 
+    monitor = PollingMonitor(int(config.telegram_chat_id))
+
     # Start health check server if configured
     if config.health_port:
         from .utils.healthcheck import start_health_server
@@ -155,10 +158,13 @@ def run() -> None:
                 ok = age_hours < 48
             else:
                 ok = False
+            ok = ok and monitor.is_healthy()
             return {
                 "status": "ok" if ok else "degraded",
                 "ok": ok,
                 "last_sync": str(last_sync_dt) if last_sync_dt else None,
+                "telegram_polling_ok": monitor.is_healthy(),
+                "last_polling_conflict": str(monitor.last_conflict_at) if monitor.last_conflict_at else None,
                 "uptime_seconds": int(_time.monotonic() - _startup_time),
             }
 
@@ -166,6 +172,7 @@ def run() -> None:
 
     # Build Telegram application
     app = tg_bot.build_application()
+    app.add_error_handler(monitor.on_error)
 
     # CNCSearch: register /canticos handler if configured
     _cncsearch_db = os.environ.get("CNCSEARCH_DATABASE_PATH")
