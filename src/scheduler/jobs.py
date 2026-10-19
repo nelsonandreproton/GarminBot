@@ -79,13 +79,14 @@ def make_sync_job(garmin: GarminClient, repo: Repository, fatsecret=None, outsys
             except Exception as exc:
                 logger.warning("Sync: could not save activities for %s: %s", summary.date, exc)
 
+            # No next_in_seconds: sync only runs on a manual /sync, so HetznerCheck
+            # must not expect a beat on a schedule (it alerted whenever /sync was skipped).
             if _HEARTBEAT_AVAILABLE:
                 hb_status = "ok" if sync_status == "success" else "degraded"
                 _hb_beat(
                     "GarminBot",
                     status=hb_status,
                     note=f"sync {sync_status} for {summary.date}",
-                    next_in_seconds=86400,  # expect next run in ~24h
                 )
         except Exception as exc:
             repo.log_sync("error", str(exc)[:500])
@@ -95,7 +96,6 @@ def make_sync_job(garmin: GarminClient, repo: Repository, fatsecret=None, outsys
                     "GarminBot",
                     status="error",
                     note=f"sync failed: {str(exc)[:120]}",
-                    next_in_seconds=86400,
                 )
             raise
 
