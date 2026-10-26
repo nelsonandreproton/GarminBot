@@ -222,6 +222,7 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
         app.add_handler(_cmd("mes", self._cmd_mes))
         app.add_handler(_cmd("sync", self._cmd_sync))
         app.add_handler(_cmd("pump", self._cmd_pump))
+        app.add_handler(_cmd("tempo", self._cmd_tempo))
         app.add_handler(_cmd("xread", self._cmd_xread))
         app.add_handler(_cmd("status", self._cmd_status))
         app.add_handler(_cmd("ajuda", self._cmd_ajuda))
@@ -280,6 +281,7 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
                 BotCommand("sync_atividades", "Importar atividades do Garmin (ex: /sync_atividades hoje)"),
                 BotCommand("sync_peso", "Sincronizar peso do Garmin (ex: /sync_peso 30)"),
                 BotCommand("sync_treino", "Sincronizar e gerar sugestão de treino"),
+                BotCommand("tempo", "Previsão do tempo para hoje"),
                 BotCommand("treinei", "Registar treino feito (ex: /treinei Bench 4x8)"),
                 BotCommand("xread", "Analisar tweet e guardar no Obsidian (ex: /xread <url>)"),
             ],

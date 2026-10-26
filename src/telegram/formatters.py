@@ -414,6 +414,7 @@ def format_help_message() -> str:
         "/objetivo métrica valor — Ver ou definir objetivos (passos/sono/peso/calorias/proteina/gordura/hidratos)\n"
         "/peso [valor] — Ver ou registar peso\n"
         "/status — Estado do bot\n"
+        "/tempo — Previsão do tempo para hoje\n"
         "/nutricao — Resumo nutricional do dia (dados sincronizados do FatSecret)\n"
         "/apagar — Apagar último alimento registado\n"
         "/ajuda — Esta mensagem"

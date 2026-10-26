@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -9,6 +10,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 
 class ConfigError(Exception):
@@ -43,6 +46,8 @@ class Config:
     fatsecret_consumer_key: str | None
     fatsecret_consumer_secret: str | None
     outsystems_api_base_url: str | None
+    weather_latitude: float | None = None
+    weather_longitude: float | None = None
 
     # Derived fields
     sync_hour: int = field(init=False)
@@ -71,6 +76,17 @@ class Config:
             return int(parts[0]), int(parts[1])
         except (ValueError, IndexError):
             raise ConfigError(f"{name} must be in HH:MM format, got: {value!r}")
+
+
+def _parse_coordinates(lat_raw: str | None, lon_raw: str | None) -> tuple[float | None, float | None]:
+    """Parse optional lat/lon; invalid or partial values disable the weather feature."""
+    if not lat_raw or not lon_raw:
+        return None, None
+    try:
+        return float(lat_raw), float(lon_raw)
+    except ValueError:
+        logger.warning("WEATHER_LATITUDE/WEATHER_LONGITUDE must be numbers — /tempo disabled")
+        return None, None
 
 
 def load_config() -> Config:
@@ -136,6 +152,11 @@ def load_config() -> Config:
     # OUTSYSTEMS: optional — daily-record sync to Nelson's OutSystems app disabled if absent
     outsystems_api_base_url = os.getenv("OUTSYSTEMS_API_BASE_URL") or None
 
+    # WEATHER_LATITUDE/LONGITUDE: optional — /tempo disabled if absent or invalid
+    weather_latitude, weather_longitude = _parse_coordinates(
+        os.getenv("WEATHER_LATITUDE"), os.getenv("WEATHER_LONGITUDE")
+    )
+
     return Config(
         garmin_email=required["GARMIN_EMAIL"],  # type: ignore[arg-type]
         garmin_password=required["GARMIN_PASSWORD"],  # type: ignore[arg-type]
@@ -163,4 +184,6 @@ def load_config() -> Config:
         fatsecret_consumer_key=fatsecret_consumer_key,
         fatsecret_consumer_secret=fatsecret_consumer_secret,
         outsystems_api_base_url=outsystems_api_base_url,
+        weather_latitude=weather_latitude,
+        weather_longitude=weather_longitude,
     )

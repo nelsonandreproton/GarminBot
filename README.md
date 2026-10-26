@@ -123,6 +123,7 @@ All settings live in `.env`. See `.env.example` for the full list with comments.
 | `OBSIDIAN_VAULT_PATH` | — | Path to Obsidian vault (optional, enables `/xread` note saving) |
 | `GITHUB_TOKEN` | — | GitHub PAT with `repo` scope (optional, enables `/xread` vault push) |
 | `OUTSYSTEMS_API_BASE_URL` | — | Base URL of an external OutSystems daily-record API (optional; `/sync` creates a record for the synced day if one doesn't already exist) |
+| `WEATHER_LATITUDE` / `WEATHER_LONGITUDE` | — | Coordinates for `/tempo` (optional; command replies "not configured" if absent) |
 
 ## Telegram Commands
 
@@ -140,6 +141,7 @@ All settings live in `.env`. See `.env.example` for the full list with comments.
 | `/objetivo` | View or set goals (passos/sono/peso/calorias/proteina/gordura/hidratos) |
 | `/barriga [valor]` | View recent waist circumference records, or register today's (cm) |
 | `/xread <url>` | Analyse a tweet/X post and save insights to Obsidian |
+| `/tempo` | Today's weather forecast and air quality (Open-Meteo; needs `WEATHER_LATITUDE`/`WEATHER_LONGITUDE`) |
 | `/exportar N` | Export the last N days of Garmin metrics as CSV |
 | `/exportar [csv\|json\|xlsx] [início] [fim]` | Export daily metrics (same data as /sync — sleep, activity, health, weight, waist) for a period |
 | `/exportar refeicoes [csv\|json\|xlsx] [início] [fim]` | Export registered meals (incl. FatSecret) for a period, auto-syncing missing FatSecret days first |

@@ -1,7 +1,8 @@
-"""System command handlers: /sync, /status, /ajuda, /exportar, /backfill."""
+"""System command handlers: /sync, /status, /ajuda, /exportar, /backfill, /tempo."""
 
 from __future__ import annotations
 
+import asyncio
 import io as _io
 import logging
 from datetime import date, timedelta
@@ -10,6 +11,7 @@ from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
+from ...integrations.weather_client import fetch_weather, format_weather
 from ..helpers import _is_rate_limited, _parse_export_args, safe_command
 
 logger = logging.getLogger(__name__)
@@ -61,6 +63,26 @@ class SystemMixin:
             await self._send(insight.insight_pt)
         else:
             await update.message.reply_text("📰 Não foi possível obter o artigo do The Pump.")
+
+    @safe_command
+    async def _cmd_tempo(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """/tempo — today's weather forecast and air quality (Open-Meteo)."""
+        if not self._auth_check(update) or _is_rate_limited(update.effective_chat.id):
+            return
+        lat = self._config.weather_latitude
+        lon = self._config.weather_longitude
+        if lat is None or lon is None:
+            await update.message.reply_text(
+                "Tempo não configurado (WEATHER_LATITUDE / WEATHER_LONGITUDE em falta)."
+            )
+            return
+        try:
+            data = await asyncio.to_thread(fetch_weather, lat, lon)
+        except Exception as exc:
+            logger.error("/tempo failed: %s", exc, exc_info=True)
+            await update.message.reply_text("❌ Não foi possível obter a previsão do tempo. Tenta mais tarde.")
+            return
+        await update.message.reply_text(format_weather(data))
 
     @safe_command
     async def _cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
