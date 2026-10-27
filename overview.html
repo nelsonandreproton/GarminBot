@@ -224,6 +224,7 @@
           <tr><td><code>src/nutrition/fatsecret_client.py</code></td><td>FatSecret Platform API (OAuth1) — reads your food diary</td><td><span class="pill green">data</span></td></tr>
           <tr><td><code>src/nutrition/fatsecret_mapper.py</code></td><td>Maps FatSecret entries → FoodEntry (idempotent upsert)</td><td><span class="pill green">data</span></td></tr>
           <tr><td><code>src/integrations/outsystems_client.py</code></td><td>Creates a daily record in an external OutSystems app during /sync</td><td><span class="pill cyan">data</span></td></tr>
+          <tr><td><code>src/integrations/weather_client.py</code></td><td>Open-Meteo forecast + air quality for on-demand /tempo</td><td><span class="pill cyan">data</span></td></tr>
           <tr><td><code>src/training/recommender.py</code></td><td>Groq LLM workout plan generation</td><td><span class="pill orange">AI</span></td></tr>
           <tr><td><code>src/telegram/bot.py</code></td><td>All Telegram commands and handlers</td><td><span class="pill blue">bot</span></td></tr>
           <tr><td><code>src/scheduler/jobs.py</code></td><td>APScheduler job definitions</td><td><span class="pill green">sched</span></td></tr>
@@ -263,6 +264,7 @@
           <span class="label">OBSIDIAN_VAULT_PATH</span><span class="val">For /xread note saving</span>
           <span class="label">GITHUB_TOKEN</span><span class="val">For vault GitHub push</span>
           <span class="label">OUTSYSTEMS_API_BASE_URL</span><span class="val">/sync creates a daily record in an external OutSystems app</span>
+          <span class="label">WEATHER_LATITUDE / WEATHER_LONGITUDE</span><span class="val">Coordinates for on-demand /tempo forecast (Open-Meteo)</span>
         </div>
       </div>
     </div>
