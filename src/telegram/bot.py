@@ -266,6 +266,8 @@ class TelegramBot(HealthMixin, BodyMixin, NutritionMixin, TrainingMixin, SystemM
                 BotCommand("equipamento", "Ver ou configurar equipamento de ginásio"),
                 BotCommand("exportar", "Exportar dados (Garmin em CSV, ou refeicoes csv/json/xlsx num período)"),
                 BotCommand("historico", "Ver dia específico ou últimos N dias"),
+                BotCommand("letra", "Cânticos do Caminho com palavras/frase (ex: /letra \"pão da vida\")"),
+                BotCommand("letra_paroquia", "Cânticos da Paróquia com palavras/frase (ex: /letra_paroquia aleluia)"),
                 BotCommand("hoje", "Ponto de situação do dia atual (ao vivo)"),
                 BotCommand("mes", "Relatório mensal"),
                 BotCommand("nutricao", "Resumo nutricional do dia"),
