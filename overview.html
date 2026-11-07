@@ -264,6 +264,9 @@
           <span class="label">OBSIDIAN_VAULT_PATH</span><span class="val">For /xread note saving</span>
           <span class="label">GITHUB_TOKEN</span><span class="val">For vault GitHub push</span>
           <span class="label">OUTSYSTEMS_API_BASE_URL</span><span class="val">/sync creates a daily record in an external OutSystems app</span>
+          <span class="label">HETZNERCHECK_STATUS_DIR</span><span class="val">Where /server_status and /container_disk read hetzner-monitor snapshots</span>
+          <span class="label">GARMIN_API_HOST</span><span class="val">API bind host, default 127.0.0.1 (compose sets 0.0.0.0, publishes 127.0.0.1:8765)</span>
+          <span class="label">PTEVENTS_BASE_URL</span><span class="val">http://ptevents:8080 (internal bridge network)</span>
           <span class="label">WEATHER_LATITUDE / WEATHER_LONGITUDE</span><span class="val">Coordinates for on-demand /tempo forecast (Open-Meteo)</span>
         </div>
       </div>
@@ -276,7 +279,9 @@
       <div class="param-grid">
         <span class="label">Image</span><span class="val">python:3.11-slim, non-root uid 1000</span>
         <span class="label">Memory limit</span><span class="val">256m</span>
-        <span class="label">Health check</span><span class="val">HTTP :8080/health every 60s (sync freshness + <code>telegram_polling_ok</code>)</span>
+        <span class="label">Health check</span><span class="val">HTTP :8080/health every 60s (sync freshness + <code>telegram_polling_ok</code>); internal only, not public</span>
+        <span class="label">Privileges</span><span class="val">unprivileged: no pid/network host, no docker.sock, no host rootfs; on the homeserver bridge network</span>
+        <span class="label">Server status</span><span class="val">/server_status and /container_disk read hetzner-monitor snapshots via HETZNERCHECK_STATUS_DIR</span>
         <span class="label">Volumes</span><span class="val">./data (SQLite), ./logs (rotating), ~/Obsidian (vault)</span>
         <span class="label">Restart</span><span class="val">unless-stopped</span>
         <span class="label">Deployed on</span><span class="val">Hetzner VPS via homeserver orchestrator</span>
