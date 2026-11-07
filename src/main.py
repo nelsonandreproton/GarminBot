@@ -74,6 +74,20 @@ def _run_startup_backfill(garmin: GarminClient, repo: Repository) -> None:
 
 
 
+def _register_hetznercheck_handlers(app) -> None:
+    """Register /server_status and /container_disk, reading the monitor's snapshots."""
+    config_path = os.environ.get("HETZNERCHECK_CONFIG_PATH")
+    if not config_path:
+        return
+    status_dir = os.environ.get("HETZNERCHECK_STATUS_DIR")
+    try:
+        from monitor.bot_handler import register_server_status_handler, register_container_disk_handler
+        register_server_status_handler(app, config_path=config_path, status_dir=status_dir)
+        register_container_disk_handler(app, status_dir=status_dir)
+    except ImportError:
+        logger.warning("HetznerCheck not available — /server_status and /container_disk disabled (PYTHONPATH set?)")
+
+
 def run() -> None:
     """Main application entry point."""
     # Minimal early logging before config is loaded
@@ -139,7 +153,10 @@ def run() -> None:
             logger.warning("GARMIN_API_PORT set but GARMIN_API_KEY is missing — API disabled")
         else:
             from .utils.api import start_api_server
-            start_api_server(config.garmin_api_port, config.garmin_api_key, repo, sync_fn=sync_callback)
+            start_api_server(
+                config.garmin_api_port, config.garmin_api_key, repo,
+                sync_fn=sync_callback, host=config.garmin_api_host,
+            )
 
     monitor = PollingMonitor(int(config.telegram_chat_id))
 
@@ -188,15 +205,7 @@ def run() -> None:
         except ImportError:
             logger.warning("CNCSearch not available — /canticos disabled (PYTHONPATH set?)")
 
-    # HetznerCheck: register /server_status and /container_disk handlers if configured
-    _hetznercheck_config = os.environ.get("HETZNERCHECK_CONFIG_PATH")
-    if _hetznercheck_config:
-        try:
-            from monitor.bot_handler import register_server_status_handler, register_container_disk_handler
-            register_server_status_handler(app, config_path=_hetznercheck_config)
-            register_container_disk_handler(app)
-        except ImportError:
-            logger.warning("HetznerCheck not available — /server_status and /container_disk disabled (PYTHONPATH set?)")
+    _register_hetznercheck_handlers(app)
 
     # PTEvents: register /alertas, /alertas_tipos, /alertas_severidade
     _ptevents_base_url = os.environ.get("PTEVENTS_BASE_URL")

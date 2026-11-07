@@ -213,11 +213,14 @@ def _make_handler(api_key: str, repo, sync_fn=None):
     return ApiHandler
 
 
-def start_api_server(port: int, api_key: str, repo, sync_fn=None) -> threading.Thread:
+def start_api_server(
+    port: int, api_key: str, repo, sync_fn=None, host: str = "127.0.0.1"
+) -> threading.Thread:
     """Start the read-only data API in a daemon thread.
 
     Args:
         port:    TCP port to listen on.
+        host:    Interface to bind (default loopback).
         api_key: Secret key callers must supply in Authorization: Bearer header.
         repo:    Repository instance to read data from.
         sync_fn: Optional callable that triggers a Garmin sync synchronously.
@@ -227,7 +230,7 @@ def start_api_server(port: int, api_key: str, repo, sync_fn=None) -> threading.T
         The daemon thread (already started).
     """
     handler = _make_handler(api_key, repo, sync_fn=sync_fn)
-    server = HTTPServer(("127.0.0.1", port), handler)
+    server = HTTPServer((host, port), handler)
 
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

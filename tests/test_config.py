@@ -98,3 +98,23 @@ def test_load_config_health_port_invalid():
             load_config()
 
 
+
+
+def test_garmin_api_host_defaults_to_loopback():
+    with patch.dict(os.environ, _base_env(), clear=True):
+        config = load_config()
+    assert config.garmin_api_host == "127.0.0.1"
+
+
+def test_garmin_api_host_from_env():
+    env = {**_base_env(), "GARMIN_API_HOST": "0.0.0.0"}
+    with patch.dict(os.environ, env, clear=True):
+        config = load_config()
+    assert config.garmin_api_host == "0.0.0.0"
+
+
+def test_garmin_api_host_blank_falls_back_to_loopback():
+    env = {**_base_env(), "GARMIN_API_HOST": "  "}
+    with patch.dict(os.environ, env, clear=True):
+        config = load_config()
+    assert config.garmin_api_host == "127.0.0.1"

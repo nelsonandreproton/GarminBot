@@ -9,7 +9,7 @@ import time
 from datetime import date, timedelta
 from http.server import HTTPServer
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -498,3 +498,15 @@ def test_sync_fn_is_called_before_response():
         assert state["synced"] is True
     finally:
         server.shutdown()
+
+
+def test_start_api_server_binds_given_host():
+    with patch("src.utils.api.HTTPServer") as server_cls:
+        start_api_server(9999, API_KEY, _make_repo(), host="0.0.0.0")
+    assert server_cls.call_args.args[0] == ("0.0.0.0", 9999)
+
+
+def test_start_api_server_default_host_is_loopback():
+    with patch("src.utils.api.HTTPServer") as server_cls:
+        start_api_server(9999, API_KEY, _make_repo())
+    assert server_cls.call_args.args[0] == ("127.0.0.1", 9999)

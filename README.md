@@ -123,6 +123,8 @@ All settings live in `.env`. See `.env.example` for the full list with comments.
 | `OBSIDIAN_VAULT_PATH` | — | Path to Obsidian vault (optional, enables `/xread` note saving) |
 | `GITHUB_TOKEN` | — | GitHub PAT with `repo` scope (optional, enables `/xread` vault push) |
 | `OUTSYSTEMS_API_BASE_URL` | — | Base URL of an external OutSystems daily-record API (optional; `/sync` creates a record for the synced day if one doesn't already exist) |
+| `GARMIN_API_HOST` | `127.0.0.1` | Bind address of the optional data API (`GARMIN_API_PORT`). Only set `0.0.0.0` inside a container whose port is published to host loopback (`127.0.0.1:PORT:PORT`) |
+| `HETZNERCHECK_STATUS_DIR` | — | Directory with `metrics.json` / `container_disk.json` written by HetznerCheck's monitor. When set, `/server_status` and `/container_disk` read these snapshots (read-only, shows data age) instead of collecting live, so the bot needs no host/Docker access |
 | `WEATHER_LATITUDE` / `WEATHER_LONGITUDE` | — | Coordinates for `/tempo` (optional; command replies "not configured" if absent) |
 
 ## Telegram Commands

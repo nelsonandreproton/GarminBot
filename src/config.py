@@ -48,6 +48,7 @@ class Config:
     outsystems_api_base_url: str | None
     weather_latitude: float | None = None
     weather_longitude: float | None = None
+    garmin_api_host: str = "127.0.0.1"
 
     # Derived fields
     sync_hour: int = field(init=False)
@@ -144,6 +145,8 @@ def load_config() -> Config:
         except ValueError:
             raise ConfigError(f"GARMIN_API_PORT must be an integer, got: {garmin_api_port_raw!r}")
     garmin_api_key = os.getenv("GARMIN_API_KEY") or None
+    # Bind address; override only inside a container whose port is published to loopback
+    garmin_api_host = (os.getenv("GARMIN_API_HOST") or "").strip() or "127.0.0.1"
 
     # FATSECRET: optional — food diary sync disabled if absent
     fatsecret_consumer_key = os.getenv("FATSECRET_CONSUMER_KEY") or None
@@ -186,4 +189,5 @@ def load_config() -> Config:
         outsystems_api_base_url=outsystems_api_base_url,
         weather_latitude=weather_latitude,
         weather_longitude=weather_longitude,
+        garmin_api_host=garmin_api_host,
     )
